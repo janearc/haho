@@ -9,11 +9,15 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"time"
 )
 
 const (
 	serviceAccountTokenPath = "/var/run/secrets/kubernetes.io/serviceaccount/token"
 	serviceAccountCAPath    = "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
+	// insecureTLSEnv, when set to "1", allows the k3s discoverer to talk to the
+	// Kubernetes API without verifying its certificate (dev only).
+	insecureTLSEnv = "HAHO_K3S_INSECURE"
 )
 
 // Endpoint represents a discovered service endpoint.
@@ -101,20 +105,26 @@ func NewK3sDiscoverer(apiHost, token string) (*K3sDiscoverer, error) {
 		token = string(tokenBytes)
 	}
 
-	// Build TLS config. Try to load the CA cert for proper verification;
-	// fall back to InsecureSkipVerify for dev environments.
+	// Build TLS config from the in-cluster CA. If the CA cert is unavailable,
+	// refuse to talk to the API server unverified unless the operator has
+	// explicitly opted in — a silent InsecureSkipVerify is a MITM window on a
+	// hostile network.
 	tlsConfig := &tls.Config{}
 	caCert, err := os.ReadFile(serviceAccountCAPath)
 	if err == nil {
 		pool := x509.NewCertPool()
-		pool.AppendCertsFromPEM(caCert)
+		if !pool.AppendCertsFromPEM(caCert) {
+			return nil, fmt.Errorf("service account CA cert at %s is not valid PEM", serviceAccountCAPath)
+		}
 		tlsConfig.RootCAs = pool
+	} else if os.Getenv(insecureTLSEnv) == "1" {
+		tlsConfig.InsecureSkipVerify = true //nolint:gosec // explicit opt-in
 	} else {
-		// Dev-only fallback: skip TLS verification when CA cert is unavailable.
-		tlsConfig.InsecureSkipVerify = true //nolint:gosec
+		return nil, fmt.Errorf("reading service account CA cert: %w (set %s=1 to skip TLS verification for dev)", err, insecureTLSEnv)
 	}
 
 	client := &http.Client{
+		Timeout: 10 * time.Second,
 		Transport: &http.Transport{
 			TLSClientConfig: tlsConfig,
 		},
