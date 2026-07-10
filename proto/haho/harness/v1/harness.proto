@@ -2,20 +2,15 @@ syntax = "proto3";
 
 package haho.harness.v1;
 
-option go_package = "github.com/janearc/haho/gen/hahopb";
+option go_package = "github.com/janearc/haho/gen/harnesspb;harnesspb";
 
 import "google/protobuf/empty.proto";
-import "google/protobuf/struct.proto";
 import "google/protobuf/timestamp.proto";
-
-message ChatMessage {
-  string role = 1;
-  string content = 2;
-  map<string, string> metadata = 3;
-}
+import "haho/common/v1/common.proto";
+import "haho/filter/v1/filter.proto";
 
 message SubmitRequest {
-  repeated ChatMessage messages = 1;
+  repeated haho.common.v1.ChatMessage messages = 1;
   string model_override = 2;
   map<string, string> params = 3;
 }
@@ -29,10 +24,11 @@ message SubmitResponse {
 }
 
 enum HarnessState {
-  IDLE = 0;
-  BUSY = 1;
-  WAITING_SUBPROCESS = 2;
-  WAITING_INPUT = 3;
+  HARNESS_STATE_UNSPECIFIED = 0;
+  HARNESS_STATE_IDLE = 1;
+  HARNESS_STATE_BUSY = 2;
+  HARNESS_STATE_WAITING_SUBPROCESS = 3;
+  HARNESS_STATE_WAITING_INPUT = 4;
 }
 
 message HealthResponse {
@@ -48,27 +44,9 @@ message ConfigResponse {
   string config_json = 1;
 }
 
-enum FilterType {
-  RTK = 0;
-  PASSTHROUGH = 1;
-  LOGGER = 2;
-  CUSTOM = 3;
-}
-
-enum FilterStage {
-  INPUT = 0;
-  OUTPUT = 1;
-}
-
-message FilterConfig {
-  string name = 1;
-  FilterType type = 2;
-  map<string, string> params = 3;
-}
-
 message SetFilterRequest {
-  FilterStage stage = 1;
-  repeated FilterConfig filters = 2;
+  haho.filter.v1.FilterStage stage = 1;
+  repeated haho.filter.v1.FilterConfig filters = 2;
 }
 
 message SetFilterResponse {

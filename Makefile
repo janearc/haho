@@ -1,4 +1,4 @@
-.PHONY: build test test-unit test-integration proto clean lint
+.PHONY: build test test-unit test-integration proto proto-check clean lint
 
 build:
 	go build -o bin/haho ./cmd/haho
@@ -12,9 +12,17 @@ test-unit:
 test-integration:
 	go test ./test/... -v -tags=integration
 
-# Requires buf.yaml to be configured with proto source and plugin definitions.
+# Generates Go into gen/ per buf.yaml + buf.gen.yaml.
+# Requires protoc-gen-go and protoc-gen-go-grpc on PATH:
+#   go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
+#   go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
 proto:
 	buf generate
+
+# Verify the contracts compile and lint (no plugins required).
+proto-check:
+	buf build
+	buf lint
 
 clean:
 	rm -rf bin/

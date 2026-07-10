@@ -2,12 +2,15 @@ syntax = "proto3";
 
 package haho.model.v1;
 
-option go_package = "github.com/janearc/haho/gen/hahopb";
+option go_package = "github.com/janearc/haho/gen/modelpb;modelpb";
+
+import "haho/common/v1/common.proto";
 
 enum ModelProvider {
-  LOCAL = 0;
-  OPUS = 1;
-  DEEPSEEK = 2;
+  MODEL_PROVIDER_UNSPECIFIED = 0;
+  MODEL_PROVIDER_LOCAL = 1;
+  MODEL_PROVIDER_OPUS = 2;
+  MODEL_PROVIDER_DEEPSEEK = 3;
 }
 
 message ModelConfig {
@@ -18,13 +21,8 @@ message ModelConfig {
   map<string, string> params = 5;
 }
 
-message ChatMessage {
-  string role = 1;
-  string content = 2;
-}
-
 message GenerateRequest {
-  repeated ChatMessage messages = 1;
+  repeated haho.common.v1.ChatMessage messages = 1;
   ModelConfig config = 2;
   map<string, string> params = 3;
 }

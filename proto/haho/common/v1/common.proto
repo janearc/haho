@@ -1,0 +1,14 @@
+syntax = "proto3";
+
+package haho.common.v1;
+
+option go_package = "github.com/janearc/haho/gen/commonpb;commonpb";
+
+// ChatMessage is a single chat message. It is the one canonical message type
+// shared across the harness API, the model calls, and the filter pipeline, so
+// role/content/metadata mean the same thing everywhere.
+message ChatMessage {
+  string role = 1;
+  string content = 2;
+  map<string, string> metadata = 3;
+}

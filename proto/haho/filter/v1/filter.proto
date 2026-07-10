@@ -1,0 +1,43 @@
+syntax = "proto3";
+
+package haho.filter.v1;
+
+option go_package = "github.com/janearc/haho/gen/filterpb;filterpb";
+
+// FilterType identifies a filter implementation. FilterType and FilterConfig
+// are owned here and imported by harness.proto rather than redefined.
+enum FilterType {
+  FILTER_TYPE_UNSPECIFIED = 0;
+  FILTER_TYPE_RTK = 1;
+  FILTER_TYPE_PASSTHROUGH = 2;
+  FILTER_TYPE_LOGGER = 3;
+  FILTER_TYPE_CUSTOM = 4;
+}
+
+// FilterStage is the pipeline a filter belongs to.
+enum FilterStage {
+  FILTER_STAGE_UNSPECIFIED = 0;
+  FILTER_STAGE_INPUT = 1;
+  FILTER_STAGE_OUTPUT = 2;
+}
+
+message FilterConfig {
+  string name = 1;
+  FilterType type = 2;
+  map<string, string> params = 3;
+}
+
+message FilterPipelineConfig {
+  repeated FilterConfig filters = 1;
+}
+
+message FilterRequest {
+  string content = 1;
+  map<string, string> metadata = 2;
+}
+
+message FilterResponse {
+  string content = 1;
+  map<string, string> metadata = 2;
+  bool modified = 3;
+}
