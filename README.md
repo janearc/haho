@@ -42,12 +42,29 @@ haho is an LLM harness for the big-little-mesh and delightd projects. It provide
 # Build
 make build
 
-# Run with default config (local Ollama)
+# The harness authenticates to SurrealDB (2.x denies unauthenticated access)
+# and, if the control port token is set, requires it on the mutating endpoints.
+export SURREAL_CREDENTIALS='root:root'   # user:pass; operator-injected
+export HAHO_CONTROL_TOKEN='...'          # optional; guards /v1/submit and /v1/filters
+
+# Run with default config (local Ollama, SurrealDB on an exposed :8000)
 ./bin/haho
 
 # Run with custom config
 ./bin/haho -config configs/default.json
 ```
+
+Each harness runs in its own container; run as many as you need, all pointed at
+the same SurrealDB via its exposed port (`surrealdb.discovery: "static"`).
+
+## Environment
+
+| Variable | Purpose |
+|---|---|
+| `SURREAL_CREDENTIALS` | SurrealDB `user:pass` (name set by `surrealdb.credentials_env`). Falls back to `root/root` with a warning. |
+| `HAHO_CONTROL_TOKEN` | Bearer token required on `POST /v1/submit` and `POST /v1/filters`. Unset = open (logged loudly). |
+| `<model.api_key_env>` | API key for the `opus`/`deepseek` providers. Startup fails loudly if the named var is empty. |
+| `HAHO_K3S_INSECURE=1` | k3s discovery only: skip API-server TLS verification when no CA cert is present (dev). |
 
 ## Configuration
 
@@ -87,10 +104,11 @@ Contracts are defined in `proto/` (protobuf). The PoC implements HTTP/JSON.
 
 | Endpoint | Method | Description |
 |---|---|---|
-| `/v1/submit` | POST | Submit messages for LLM completion |
+| `/v1/submit` | POST | Submit messages for LLM completion (auth; single-flight — returns 429 while busy) |
 | `/v1/health` | GET | Harness health and state |
 | `/v1/config` | GET | Current configuration |
-| `/v1/filters` | POST | Update filter pipelines at runtime |
+| `/v1/filters` | POST | Update filter pipelines at runtime (auth; `binary_path` rejected over the wire) |
+| `/v1/metrics`, `/metrics` | GET | Counters (uptime, state, submit totals/busy/errors) |
 
 ### Health States
 
@@ -135,9 +153,16 @@ Input and output filters are composable and configurable at startup (JSON) or ru
 
 ## SurrealDB
 
-SurrealDB is discovered via k3s service discovery (or configured statically). Used for:
-- **RAG**: Full-text search over indexed documents
-- **Cache**: Response caching to avoid redundant LLM calls (TTL-based)
+SurrealDB (2.x) is reached over its HTTP `/sql` API. The default deployment
+connects statically to an exposed port (`discovery: "static"`, `host` + `port`);
+k3s service discovery stays available for in-cluster runs (`discovery: "k3s"`).
+All user-supplied values are bound as query variables, never interpolated into
+SurrealQL. Used for:
+- **RAG**: BM25 full-text search over indexed documents. The analyzer and search
+  index are created at startup (`EnsureSchema`); search is disabled with a
+  warning until they exist.
+- **Cache**: Response caching with a real per-entry expiry (`cache.ttl_seconds`)
+  to avoid redundant LLM calls.
 
 ## Testing
 
