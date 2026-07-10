@@ -1,0 +1,28 @@
+{
+  "listen_addr": ":0",
+  "model": {
+    "provider": "local",
+    "endpoint": "http://localhost:11434",
+    "model_name": "test-model"
+  },
+  "surrealdb": {
+    "discovery": "static",
+    "host": "localhost",
+    "port": 8000,
+    "namespace": "test",
+    "service_name": "surrealdb",
+    "database": "haho_test"
+  },
+  "filters": {
+    "input": [
+      { "name": "passthrough", "type": "PASSTHROUGH" }
+    ],
+    "output": [
+      { "name": "passthrough", "type": "PASSTHROUGH" }
+    ]
+  },
+  "cache": {
+    "enabled": false,
+    "ttl_seconds": 60
+  }
+}
