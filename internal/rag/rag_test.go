@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -53,13 +54,15 @@ func TestCacheKey_DifferentInputs(t *testing.T) {
 func TestSurrealStore_Index(t *testing.T) {
 	var capturedNS, capturedDB string
 	var capturedBody string
+	var capturedQuery url.Values
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/sql" {
 			t.Errorf("expected /sql path, got %s", r.URL.Path)
 		}
-		capturedNS = r.Header.Get("NS")
-		capturedDB = r.Header.Get("DB")
+		capturedNS = r.Header.Get("surreal-ns")
+		capturedDB = r.Header.Get("surreal-db")
+		capturedQuery = r.URL.Query()
 
 		bodyBytes, _ := io.ReadAll(r.Body)
 		capturedBody = string(bodyBytes)
@@ -81,13 +84,24 @@ func TestSurrealStore_Index(t *testing.T) {
 	}
 
 	if capturedNS != "test_ns" {
-		t.Errorf("expected NS header 'test_ns', got %q", capturedNS)
+		t.Errorf("expected surreal-ns header 'test_ns', got %q", capturedNS)
 	}
 	if capturedDB != "test_db" {
-		t.Errorf("expected DB header 'test_db', got %q", capturedDB)
+		t.Errorf("expected surreal-db header 'test_db', got %q", capturedDB)
 	}
-	if !strings.Contains(capturedBody, "doc1") || !strings.Contains(capturedBody, "doc2") {
-		t.Errorf("expected body to contain doc IDs, got %q", capturedBody)
+	// IDs and content are bound as query-string variables, never interpolated
+	// into the query body (this is the injection-safety property).
+	if capturedQuery.Get("id0") != "doc1" || capturedQuery.Get("id1") != "doc2" {
+		t.Errorf("expected doc IDs bound as $idN query vars, got %v", capturedQuery)
+	}
+	if capturedQuery.Get("c0") != "hello world" {
+		t.Errorf("expected content bound as $c0 query var, got %q", capturedQuery.Get("c0"))
+	}
+	if strings.Contains(capturedBody, "doc1") || strings.Contains(capturedBody, "hello world") {
+		t.Errorf("doc IDs/content must not appear in the query body, got %q", capturedBody)
+	}
+	if !strings.Contains(capturedBody, "CREATE") {
+		t.Errorf("expected CREATE statements in body, got %q", capturedBody)
 	}
 }
 
@@ -197,11 +211,13 @@ func TestSurrealCache_Get_Miss(t *testing.T) {
 
 func TestSurrealCache_Set(t *testing.T) {
 	var capturedBody string
+	var capturedQuery url.Values
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/sql" {
 			t.Errorf("expected /sql path, got %s", r.URL.Path)
 		}
+		capturedQuery = r.URL.Query()
 		bodyBytes, _ := io.ReadAll(r.Body)
 		capturedBody = string(bodyBytes)
 
@@ -225,11 +241,15 @@ func TestSurrealCache_Set(t *testing.T) {
 	if !strings.Contains(capturedBody, "UPSERT") {
 		t.Errorf("expected UPSERT in body, got %q", capturedBody)
 	}
-	if !strings.Contains(capturedBody, "test response") {
-		t.Errorf("expected response content in body, got %q", capturedBody)
+	// The response payload and TTL are bound as query-string variables.
+	if !strings.Contains(capturedQuery.Get("resp"), "test response") {
+		t.Errorf("expected response content bound as $resp query var, got %q", capturedQuery.Get("resp"))
 	}
-	if !strings.Contains(capturedBody, "300s") {
-		t.Errorf("expected TTL '300s' in body, got %q", capturedBody)
+	if capturedQuery.Get("ttl") != "300s" {
+		t.Errorf("expected TTL '300s' bound as $ttl query var, got %q", capturedQuery.Get("ttl"))
+	}
+	if strings.Contains(capturedBody, "test response") {
+		t.Errorf("response content must not appear in the query body, got %q", capturedBody)
 	}
 }
 
