@@ -3,7 +3,7 @@ package main
 import (
 	"context"
 	"flag"
-	"log"
+	"log/slog"
 	"os"
 	"os/signal"
 	"syscall"
@@ -18,32 +18,36 @@ func main() {
 	flag.StringVar(&configPath, "config", "", "path to config JSON file")
 	flag.Parse()
 
-	logger := log.New(os.Stderr, "[haho] ", log.LstdFlags|log.Lshortfile)
+	// Structured JSON logs to stdout. The harness runs in a container, so its
+	// stdout is collected by the platform and shipped to Kafka — the harness
+	// never talks to the bus directly (compose via the substrate).
+	root := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
+	slog.SetDefault(root)
+	logger := root.With("component", "haho")
 
-	// Load config
 	var cfg *config.Config
 	var err error
 	if configPath != "" {
 		cfg, err = config.Load(configPath)
 		if err != nil {
-			logger.Fatalf("loading config: %v", err)
+			logger.Error("loading config", "error", err, "path", configPath)
+			os.Exit(1)
 		}
 	} else {
 		cfg = config.Default()
-		logger.Println("no config specified, using defaults")
+		logger.Info("no config specified, using defaults")
 	}
 
-	// Create harness
-	h, err := harness.New(cfg, harness.WithLogger(logger))
+	h, err := harness.New(cfg, harness.WithLogger(root.With("component", "harness")))
 	if err != nil {
-		logger.Fatalf("creating harness: %v", err)
+		logger.Error("creating harness", "error", err)
+		os.Exit(1)
 	}
 	defer h.Close()
 
-	// Create and start server
 	srv := server.New(h, cfg)
 
-	// Graceful shutdown on SIGINT/SIGTERM
+	// Graceful shutdown on SIGINT/SIGTERM.
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -52,15 +56,20 @@ func main() {
 
 	go func() {
 		sig := <-sigCh
-		logger.Printf("received %v, shutting down", sig)
+		logger.Info("shutting down", "signal", sig.String())
 		cancel()
 	}()
 
-	logger.Printf("haho starting (provider=%s, model=%s)", cfg.Model.Provider, cfg.Model.ModelName)
+	logger.Info("haho starting",
+		"provider", cfg.Model.Provider,
+		"model", cfg.Model.ModelName,
+		"listen_addr", cfg.ListenAddr,
+	)
 
 	if err := srv.ListenAndServe(ctx); err != nil {
-		logger.Fatalf("server error: %v", err)
+		logger.Error("server error", "error", err)
+		os.Exit(1)
 	}
 
-	logger.Println("haho stopped")
+	logger.Info("haho stopped")
 }

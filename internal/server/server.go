@@ -2,11 +2,14 @@ package server
 
 import (
 	"context"
+	"crypto/subtle"
 	"encoding/json"
-	"log"
+	"errors"
+	"log/slog"
 	"net"
 	"net/http"
 	"os"
+	"sync/atomic"
 	"time"
 
 	"github.com/janearc/haho/internal/config"
@@ -14,12 +17,23 @@ import (
 	"github.com/janearc/haho/internal/harness"
 )
 
+// controlTokenEnv names the environment variable holding the bearer token that
+// guards the mutating control endpoints. When unset, those endpoints are open
+// (a loud startup warning is logged).
+const controlTokenEnv = "HAHO_CONTROL_TOKEN"
+
 type Server struct {
 	harness    *harness.Harness
 	config     *config.Config
 	httpServer *http.Server
-	logger     *log.Logger
+	logger     *slog.Logger
 	listener   net.Listener
+	authToken  string
+
+	// metrics (atomic).
+	submitTotal int64
+	submitBusy  int64
+	submitError int64
 }
 
 type SubmitRequest struct {
@@ -51,8 +65,8 @@ type HealthResponse struct {
 }
 
 type SetFilterRequest struct {
-	Stage   string                `json:"stage"` // "input" or "output"
-	Filters []config.FilterEntry  `json:"filters"`
+	Stage   string               `json:"stage"` // "input" or "output"
+	Filters []config.FilterEntry `json:"filters"`
 }
 
 type SetFilterResponse struct {
@@ -66,16 +80,25 @@ type ErrorResponse struct {
 
 func New(h *harness.Harness, cfg *config.Config) *Server {
 	s := &Server{
-		harness: h,
-		config:  cfg,
-		logger:  log.New(os.Stderr, "[haho:server] ", log.LstdFlags),
+		harness:   h,
+		config:    cfg,
+		logger:    slog.Default().With("component", "server"),
+		authToken: os.Getenv(controlTokenEnv),
+	}
+
+	if s.authToken == "" {
+		s.logger.Warn("control API is unauthenticated", "env", controlTokenEnv)
 	}
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("POST /v1/submit", s.handleSubmit)
+	// Mutating / cost-bearing endpoints require the bearer token when set.
+	mux.HandleFunc("POST /v1/submit", s.withAuth(s.handleSubmit))
+	mux.HandleFunc("POST /v1/filters", s.withAuth(s.handleSetFilters))
+	// Read-only endpoints are open for liveness probes and scrapers.
 	mux.HandleFunc("GET /v1/health", s.handleHealth)
 	mux.HandleFunc("GET /v1/config", s.handleConfig)
-	mux.HandleFunc("POST /v1/filters", s.handleSetFilters)
+	mux.HandleFunc("GET /v1/metrics", s.handleMetrics)
+	mux.HandleFunc("GET /metrics", s.handleMetrics)
 
 	s.httpServer = &http.Server{
 		Handler:      mux,
@@ -86,13 +109,28 @@ func New(h *harness.Harness, cfg *config.Config) *Server {
 	return s
 }
 
+// withAuth enforces the bearer token on a handler when one is configured.
+func (s *Server) withAuth(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if s.authToken != "" {
+			const prefix = "Bearer "
+			got := r.Header.Get("Authorization")
+			if len(got) <= len(prefix) || subtle.ConstantTimeCompare([]byte(got[len(prefix):]), []byte(s.authToken)) != 1 {
+				writeError(w, http.StatusUnauthorized, "unauthorized")
+				return
+			}
+		}
+		next(w, r)
+	}
+}
+
 func (s *Server) ListenAndServe(ctx context.Context) error {
 	listener, err := net.Listen("tcp", s.config.ListenAddr)
 	if err != nil {
 		return err
 	}
 	s.listener = listener
-	s.logger.Printf("listening on %s", s.Addr())
+	s.logger.Info("listening", "addr", s.Addr())
 
 	go func() {
 		<-ctx.Done()
@@ -120,8 +158,11 @@ func (s *Server) Addr() string {
 }
 
 func (s *Server) handleSubmit(w http.ResponseWriter, r *http.Request) {
+	atomic.AddInt64(&s.submitTotal, 1)
+
 	var req SubmitRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		atomic.AddInt64(&s.submitError, 1)
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
@@ -135,8 +176,14 @@ func (s *Server) handleSubmit(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
-	resp, err := s.harness.Submit(r.Context(), messages)
+	resp, err := s.harness.Submit(r.Context(), messages, harness.WithModelOverride(req.ModelOverride))
 	if err != nil {
+		if errors.Is(err, harness.ErrBusy) {
+			atomic.AddInt64(&s.submitBusy, 1)
+			writeError(w, http.StatusTooManyRequests, err.Error())
+			return
+		}
+		atomic.AddInt64(&s.submitError, 1)
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -165,6 +212,18 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, s.harness.Config())
 }
 
+func (s *Server) handleMetrics(w http.ResponseWriter, r *http.Request) {
+	status := s.harness.Health()
+	writeJSON(w, http.StatusOK, map[string]any{
+		"uptime_seconds": int64(status.Uptime.Seconds()),
+		"state":          status.StateStr,
+		"model":          status.Model,
+		"submit_total":   atomic.LoadInt64(&s.submitTotal),
+		"submit_busy":    atomic.LoadInt64(&s.submitBusy),
+		"submit_error":   atomic.LoadInt64(&s.submitError),
+	})
+}
+
 func (s *Server) handleSetFilters(w http.ResponseWriter, r *http.Request) {
 	var req SetFilterRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -172,7 +231,9 @@ func (s *Server) handleSetFilters(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := s.harness.SetFiltersFromConfig(req.Stage, req.Filters); err != nil {
+	// trusted=false: filter entries arriving over the network may not choose
+	// which binary the RTK filter executes.
+	if err := s.harness.SetFiltersFromConfig(req.Stage, req.Filters, false); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}

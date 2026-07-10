@@ -2,9 +2,13 @@ package harness
 
 import (
 	"context"
+	"errors"
 	"fmt"
-	"log"
+	"log/slog"
+	"os"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/janearc/haho/internal/config"
 	"github.com/janearc/haho/internal/discovery"
@@ -13,6 +17,12 @@ import (
 	"github.com/janearc/haho/internal/model"
 	"github.com/janearc/haho/internal/rag"
 )
+
+// ErrBusy is returned by Submit when the harness is already processing a
+// request. A harness is single-flight by design: the health state machine
+// (idle/busy/waiting_*) describes one in-flight job, and operators scale
+// throughput by running more harness containers, not by concurrent Submits.
+var ErrBusy = errors.New("harness busy: a request is already in flight")
 
 // Harness is the core orchestrator.
 type Harness struct {
@@ -23,13 +33,32 @@ type Harness struct {
 	store          rag.Store // may be nil if SurrealDB unavailable
 	cache          rag.Cache // may be nil if cache disabled or SurrealDB unavailable
 	health         *health.DefaultTracker
-	logger         *log.Logger
+	logger         *slog.Logger
+	submitMu       sync.Mutex // enforces single-flight Submit
+}
+
+// submitOptions carries per-request overrides for Submit.
+type submitOptions struct {
+	model string
+}
+
+// SubmitOption customizes a single Submit call.
+type SubmitOption func(*submitOptions)
+
+// WithModelOverride requests a specific model for this call, overriding the
+// configured default. Empty values are ignored.
+func WithModelOverride(m string) SubmitOption {
+	return func(o *submitOptions) {
+		if m != "" {
+			o.model = m
+		}
+	}
 }
 
 // Option for dependency injection
 type Option func(*Harness)
 
-func WithLogger(l *log.Logger) Option {
+func WithLogger(l *slog.Logger) Option {
 	return func(h *Harness) {
 		h.logger = l
 	}
@@ -73,11 +102,20 @@ func New(cfg *config.Config, opts ...Option) (*Harness, error) {
 	}
 
 	if h.logger == nil {
-		h.logger = log.Default()
+		h.logger = slog.Default()
 	}
 
 	if h.provider == nil {
-		p, err := model.NewProvider(cfg.Model.Provider, cfg.Model.Endpoint, cfg.Model.ModelName, "") // api key not fetched from env in this PoC stub
+		apiKey := ""
+		if cfg.Model.APIKeyEnv != "" {
+			apiKey = os.Getenv(cfg.Model.APIKeyEnv)
+		}
+		// Fail loud rather than sending an empty key to a remote provider,
+		// which would surface later as an opaque 401.
+		if providerNeedsKey(cfg.Model.Provider) && apiKey == "" {
+			return nil, fmt.Errorf("model.provider %q requires an API key but api_key_env=%q resolved to empty", cfg.Model.Provider, cfg.Model.APIKeyEnv)
+		}
+		p, err := model.NewProvider(cfg.Model.Provider, cfg.Model.Endpoint, cfg.Model.ModelName, apiKey)
 		if err != nil {
 			return nil, fmt.Errorf("creating provider: %w", err)
 		}
@@ -86,20 +124,26 @@ func New(cfg *config.Config, opts ...Option) (*Harness, error) {
 
 	h.health.SetModel(fmt.Sprintf("%s/%s", h.provider.Name(), cfg.Model.ModelName))
 
-	if err := h.SetFiltersFromConfig("input", cfg.Filters.Input); err != nil {
+	if err := h.SetFiltersFromConfig("input", cfg.Filters.Input, true); err != nil {
 		return nil, fmt.Errorf("building input filters: %w", err)
 	}
-	if err := h.SetFiltersFromConfig("output", cfg.Filters.Output); err != nil {
+	if err := h.SetFiltersFromConfig("output", cfg.Filters.Output, true); err != nil {
 		return nil, fmt.Errorf("building output filters: %w", err)
 	}
 
 	surrealEndpoint, err := discoverSurrealDB(cfg)
 	if err != nil {
-		h.logger.Printf("warning: discovering surrealdb: %v (store and cache will be disabled)", err)
+		h.logger.Warn("surrealdb discovery failed; store and cache disabled", "error", err)
 	} else {
-		creds := parseSurrealCreds("") // empty in this stub
+		creds := resolveSurrealCreds(cfg, h.logger)
 		if h.store == nil {
-			h.store = rag.NewSurrealStore(surrealEndpoint, cfg.SurrealDB.Namespace, cfg.SurrealDB.Database, creds.user, creds.pass)
+			store := rag.NewSurrealStore(surrealEndpoint, cfg.SurrealDB.Namespace, cfg.SurrealDB.Database, creds.user, creds.pass)
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			if serr := store.EnsureSchema(ctx); serr != nil {
+				h.logger.Warn("surrealdb schema bootstrap failed; RAG search disabled until the analyzer and index exist", "error", serr)
+			}
+			cancel()
+			h.store = store
 		}
 		if h.cache == nil && cfg.Cache.Enabled {
 			h.cache = rag.NewSurrealCache(surrealEndpoint, cfg.SurrealDB.Namespace, cfg.SurrealDB.Database, creds.user, creds.pass)
@@ -109,29 +153,70 @@ func New(cfg *config.Config, opts ...Option) (*Harness, error) {
 	return h, nil
 }
 
-// Submit processes a prompt through the full pipeline.
-func (h *Harness) Submit(ctx context.Context, messages []filter.Message) (*model.Response, error) {
+// providerNeedsKey reports whether a provider authenticates with an API key.
+func providerNeedsKey(provider string) bool {
+	switch provider {
+	case "opus", "deepseek":
+		return true
+	default:
+		return false
+	}
+}
+
+// resolveSurrealCreds reads SurrealDB credentials ("user:pass") from the env var
+// named by CredentialsEnv. When unset it falls back to root/root and says so —
+// SurrealDB 2.x denies unauthenticated access, so silent-empty creds would only
+// surface later as a 403.
+func resolveSurrealCreds(cfg *config.Config, logger *slog.Logger) surrealCreds {
+	raw := ""
+	if cfg.SurrealDB.CredentialsEnv != "" {
+		raw = os.Getenv(cfg.SurrealDB.CredentialsEnv)
+	}
+	if raw == "" {
+		logger.Warn("surrealdb credentials env is empty; falling back to default root credentials", "env", cfg.SurrealDB.CredentialsEnv)
+	}
+	return parseSurrealCreds(raw)
+}
+
+// Submit processes a prompt through the full pipeline. It is single-flight:
+// a concurrent call returns ErrBusy rather than corrupting the shared health
+// state or double-billing the provider.
+func (h *Harness) Submit(ctx context.Context, messages []filter.Message, opts ...SubmitOption) (*model.Response, error) {
+	if !h.submitMu.TryLock() {
+		return nil, ErrBusy
+	}
+	defer h.submitMu.Unlock()
+
+	var so submitOptions
+	for _, opt := range opts {
+		opt(&so)
+	}
+	modelName := h.cfg.Model.ModelName
+	if so.model != "" {
+		modelName = so.model
+	}
+
 	defer h.health.SetState(health.StateIdle, "")
 	h.health.SetState(health.StateBusy, "processing input")
 
-	// 2. Run input filters on each message
+	// Run input filters on each message. Process clones internally, so the
+	// caller's slice is never mutated.
 	var filteredMessages []filter.Message
 	for _, msg := range messages {
-		// make a copy for pointer passing
-		msgPtr := &msg
-		resMsg, err := h.inputPipeline.Process(ctx, msgPtr)
+		resMsg, err := h.inputPipeline.Process(ctx, &msg)
 		if err != nil {
 			return nil, fmt.Errorf("input filter error: %w", err)
 		}
 		filteredMessages = append(filteredMessages, *resMsg)
 	}
 
-	// 3. Check cache
-	cacheKey := rag.CacheKey(filteredMessages, h.cfg.Model.ModelName)
+	// Check cache. The key is computed pre-RAG so it is deterministic; the
+	// retrieved RAG context is intentionally not part of the key.
+	cacheKey := rag.CacheKey(filteredMessages, modelName)
 	if h.cache != nil {
 		cachedResp, hit, err := h.cache.Get(ctx, cacheKey)
 		if err != nil {
-			h.logger.Printf("warning: cache get error: %v", err)
+			h.logger.Warn("cache get failed", "error", err)
 		} else if hit {
 			cachedResp.Cached = true
 			
@@ -151,7 +236,7 @@ func (h *Harness) Submit(ctx context.Context, messages []filter.Message) (*model
 		lastMsg := filteredMessages[len(filteredMessages)-1]
 		results, err := h.store.Search(ctx, lastMsg.Content, 3)
 		if err != nil {
-			h.logger.Printf("warning: RAG search error: %v", err)
+			h.logger.Warn("RAG search failed", "error", err)
 		} else if len(results) > 0 {
 			var contextBuilder strings.Builder
 			contextBuilder.WriteString("Context:\n")
@@ -170,7 +255,7 @@ func (h *Harness) Submit(ctx context.Context, messages []filter.Message) (*model
 	h.health.SetState(health.StateWaitingSubprocess, "waiting on model provider")
 	req := &model.Request{
 		Messages: filteredMessages,
-		Model:    h.cfg.Model.ModelName,
+		Model:    modelName,
 	}
 	resp, err := h.provider.Generate(ctx, req)
 	if err != nil {
@@ -180,8 +265,9 @@ func (h *Harness) Submit(ctx context.Context, messages []filter.Message) (*model
 	h.health.SetState(health.StateBusy, "processing output")
 
 	if h.cache != nil {
-		if err := h.cache.Set(ctx, cacheKey, resp, 0); err != nil { // 0 for now
-			h.logger.Printf("warning: cache set error: %v", err)
+		ttl := time.Duration(h.cfg.Cache.TTLSeconds) * time.Second
+		if err := h.cache.Set(ctx, cacheKey, resp, ttl); err != nil {
+			h.logger.Warn("cache set failed", "error", err)
 		}
 	}
 
@@ -221,11 +307,17 @@ func (h *Harness) Close() error {
 	return nil
 }
 
-// BuildFilters is exported for server config reload.
+// BuildFilters builds a filter pipeline from trusted config entries (e.g. the
+// on-disk config file). Use SetFiltersFromConfig with trusted=false for entries
+// that arrive over the control API.
 func BuildFilters(entries []config.FilterEntry) ([]filter.Filter, error) {
+	return buildFilters(entries, true)
+}
+
+func buildFilters(entries []config.FilterEntry, trusted bool) ([]filter.Filter, error) {
 	var filters []filter.Filter
 	for _, entry := range entries {
-		f, err := newFilter(entry)
+		f, err := newFilter(entry, trusted)
 		if err != nil {
 			return nil, err
 		}
@@ -234,8 +326,11 @@ func BuildFilters(entries []config.FilterEntry) ([]filter.Filter, error) {
 	return filters, nil
 }
 
-func (h *Harness) SetFiltersFromConfig(stage string, entries []config.FilterEntry) error {
-	filters, err := BuildFilters(entries)
+// SetFiltersFromConfig replaces a stage's pipeline. trusted must be false for
+// entries received over the network so that untrusted callers cannot choose
+// which binary the RTK filter executes.
+func (h *Harness) SetFiltersFromConfig(stage string, entries []config.FilterEntry, trusted bool) error {
+	filters, err := buildFilters(entries, trusted)
 	if err != nil {
 		return err
 	}
@@ -249,10 +344,19 @@ func (h *Harness) SetFiltersFromConfig(stage string, entries []config.FilterEntr
 	return nil
 }
 
-func newFilter(entry config.FilterEntry) (filter.Filter, error) {
+func newFilter(entry config.FilterEntry, trusted bool) (filter.Filter, error) {
 	switch strings.ToUpper(entry.Type) {
 	case "RTK":
-		return filter.NewRTKFilter(entry.Params["binary_path"])
+		// binary_path chooses which executable runs with message content on
+		// stdin. Honoring it from an untrusted caller is arbitrary command
+		// execution, so it is accepted only from trusted (on-disk) config.
+		binaryPath := ""
+		if trusted {
+			binaryPath = entry.Params["binary_path"]
+		} else if entry.Params["binary_path"] != "" {
+			return nil, fmt.Errorf("rtk filter: binary_path may not be set via the control API")
+		}
+		return filter.NewRTKFilter(binaryPath)
 	case "PASSTHROUGH":
 		return filter.NewPassthroughFilter(), nil
 	case "LOGGER":
@@ -277,7 +381,9 @@ func discoverSurrealDB(cfg *config.Config) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	endpoint, err := disc.Discover(context.Background(), cfg.SurrealDB.ServiceName, cfg.SurrealDB.Namespace)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	endpoint, err := disc.Discover(ctx, cfg.SurrealDB.ServiceName, cfg.SurrealDB.Namespace)
 	if err != nil {
 		return "", err
 	}
