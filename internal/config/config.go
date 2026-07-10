@@ -88,10 +88,23 @@ func (c *Config) validate() error {
 		return fmt.Errorf("model.provider %q is not supported (want local, opus, or deepseek)", c.Model.Provider)
 	}
 
-	hasDiscovery := c.SurrealDB.Discovery != ""
-	hasHostPort := c.SurrealDB.Host != "" && c.SurrealDB.Port > 0
-	if !hasDiscovery && !hasHostPort {
-		return fmt.Errorf("surrealdb must have either discovery or host+port configured")
+	switch c.SurrealDB.Discovery {
+	case "static":
+		if c.SurrealDB.Host == "" || c.SurrealDB.Port <= 0 {
+			return fmt.Errorf("surrealdb.discovery=static requires host and a positive port")
+		}
+	case "k3s":
+		if c.SurrealDB.ServiceName == "" || c.SurrealDB.Namespace == "" {
+			return fmt.Errorf("surrealdb.discovery=k3s requires service_name and namespace")
+		}
+	case "":
+		return fmt.Errorf("surrealdb.discovery must be set (static or k3s)")
+	default:
+		return fmt.Errorf("surrealdb.discovery %q is not supported (want static or k3s)", c.SurrealDB.Discovery)
+	}
+
+	if c.Cache.Enabled && c.Cache.TTLSeconds <= 0 {
+		return fmt.Errorf("cache.ttl_seconds must be a positive number of seconds when cache is enabled")
 	}
 
 	return nil
@@ -107,10 +120,15 @@ func Default() *Config {
 			ModelName: "llama3",
 		},
 		SurrealDB: SurrealConfig{
-			Discovery:      "k3s",
-			Namespace:      "default",
+			// The default deployment connects to an exposed SurrealDB port
+			// (one harness container per operator instance, all pointed at the
+			// same SurrealDB). k3s discovery stays available for in-cluster runs.
+			Discovery:      "static",
+			Namespace:      "haho",
 			ServiceName:    "surrealdb",
 			Database:       "haho",
+			Host:           "localhost",
+			Port:           8000,
 			CredentialsEnv: "SURREAL_CREDENTIALS",
 		},
 		Filters: FiltersConfig{
