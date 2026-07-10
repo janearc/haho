@@ -1,0 +1,85 @@
+syntax = "proto3";
+
+package haho.harness.v1;
+
+option go_package = "github.com/janearc/haho/gen/hahopb";
+
+import "google/protobuf/empty.proto";
+import "google/protobuf/struct.proto";
+import "google/protobuf/timestamp.proto";
+
+message ChatMessage {
+  string role = 1;
+  string content = 2;
+  map<string, string> metadata = 3;
+}
+
+message SubmitRequest {
+  repeated ChatMessage messages = 1;
+  string model_override = 2;
+  map<string, string> params = 3;
+}
+
+message SubmitResponse {
+  string content = 1;
+  int32 tokens_used = 2;
+  string model = 3;
+  bool cached = 4;
+  map<string, string> metadata = 5;
+}
+
+enum HarnessState {
+  IDLE = 0;
+  BUSY = 1;
+  WAITING_SUBPROCESS = 2;
+  WAITING_INPUT = 3;
+}
+
+message HealthResponse {
+  HarnessState state = 1;
+  string state_description = 2;
+  string model_name = 3;
+  int64 uptime_seconds = 4;
+  string message = 5;
+  google.protobuf.Timestamp last_updated = 6;
+}
+
+message ConfigResponse {
+  string config_json = 1;
+}
+
+enum FilterType {
+  RTK = 0;
+  PASSTHROUGH = 1;
+  LOGGER = 2;
+  CUSTOM = 3;
+}
+
+enum FilterStage {
+  INPUT = 0;
+  OUTPUT = 1;
+}
+
+message FilterConfig {
+  string name = 1;
+  FilterType type = 2;
+  map<string, string> params = 3;
+}
+
+message SetFilterRequest {
+  FilterStage stage = 1;
+  repeated FilterConfig filters = 2;
+}
+
+message SetFilterResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+service HarnessService {
+  rpc Submit(SubmitRequest) returns (SubmitResponse);
+  rpc StreamSubmit(SubmitRequest) returns (stream SubmitResponse);
+  rpc GetHealth(google.protobuf.Empty) returns (HealthResponse);
+  rpc GetConfig(google.protobuf.Empty) returns (ConfigResponse);
+  rpc SetFilter(SetFilterRequest) returns (SetFilterResponse);
+}

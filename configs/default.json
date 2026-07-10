@@ -1,0 +1,30 @@
+{
+  "listen_addr": ":9090",
+  "model": {
+    "provider": "local",
+    "endpoint": "http://localhost:11434",
+    "model_name": "llama3",
+    "api_key_env": ""
+  },
+  "surrealdb": {
+    "discovery": "k3s",
+    "namespace": "default",
+    "service_name": "surrealdb",
+    "database": "haho",
+    "credentials_env": "SURREAL_CREDENTIALS",
+    "host": "",
+    "port": 0
+  },
+  "filters": {
+    "input": [
+      { "name": "rtk", "type": "RTK", "params": {} }
+    ],
+    "output": [
+      { "name": "passthrough", "type": "PASSTHROUGH", "params": {} }
+    ]
+  },
+  "cache": {
+    "enabled": true,
+    "ttl_seconds": 3600
+  }
+}
