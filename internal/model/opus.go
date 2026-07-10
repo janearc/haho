@@ -24,7 +24,7 @@ func NewOpusProvider(endpoint, modelName, apiKey string) *OpusProvider {
 		endpoint = "https://api.anthropic.com"
 	}
 	if modelName == "" {
-		modelName = "claude-sonnet-4-20250514"
+		modelName = "claude-opus-4-8"
 	}
 	return &OpusProvider{
 		endpoint:  endpoint,
