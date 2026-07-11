@@ -371,19 +371,28 @@ from the spec alone (nothing inherited). Illustrative profile:
                    (subpath (param "SCRATCH")))
 (allow file-write* (subpath (param "SCRATCH")))
 (allow network-outbound
-  (remote tcp "127.0.0.1:*")       ; resident model servers, furnished caches
-  (remote tcp (param "API_HOST"))) ; present only when the spec names an api
-                                   ; backend; set to the spec's base_url host,
-                                   ; nothing wider
+  (remote tcp (param "HAHOD_ADDR"))  ; the daemon, always
+  (remote tcp (param "MLX_ADDR"))    ; present only when the spec names the
+                                     ; MLX backend; that server's one port
+  (remote tcp (param "CACHE_ADDR"))  ; present only when the spec enables a
+                                     ; cache; the named store's one port
+  (remote tcp (param "API_HOST")))   ; present only when the spec names an api
+                                     ; backend; the spec's base_url host,
+                                     ; nothing wider
 ;; plus the framework services the declared lanes require, and no others
 ```
 
-Read the last allowance carefully, because it is the security model in one
-line: a job's network reach is derived from its spec. A spec that names no
-api backend produces a profile with no rule for outbound traffic beyond
-loopback — the chute can reach the resident model servers and the furnished
-caches on this machine, and nothing else on any network. The scratch
-directory is created at process launch and deleted at exit.
+Read the allowances carefully, because they are the security model in
+miniature: a job's network reach is derived from its spec, and loopback is
+not a blanket grant. The profile enumerates the specific local ports the
+spec implies — hahod always, the MLX server only if the spec names that
+backend, the named cache only if the spec enables caching — so a chute
+cannot browse the machine's other local services. A spec that names no api
+backend produces a profile whose outbound reach is exactly those enumerated
+loopback ports and nothing else on any network. The scratch directory is
+created at process launch and deleted at exit; a crash leaves it behind,
+and the sweeper reaps any scratch whose chute is gone — disk exhaustion is
+the failure mode that rule exists to prevent.
 
 ### What haho is not
 
@@ -409,7 +418,9 @@ resident layer is small and specific:
   models warm on the metal lane, serving loopback HTTP. This is owned by the
   mesh's existing Apple-silicon Swift work in big-little-mesh
   (`big-little-mesh/apple-silicon`[^11]); haho is a client of it, not an
-  owner. It holds no job state.
+  owner. It holds no job state. The two version independently on one host;
+  compatibility is a brew-upgrade-grade concern — the bench suite catches
+  drift — not a fleet-grade protocol negotiation.
 - **AFM, Speech, Translation** — resident inside macOS; a chute calls the
   framework.
 - **Furnished state** — surrealdb, redis, and whatever else `meubilair.yaml`
@@ -471,7 +482,11 @@ Three words, held apart on purpose. `hahod` is the resident daemon. A
 **harness** is what hahod creates per accepted job: the scope and sandbox
 one chute executes in — a subordinate but not fixed process, in that it
 daemonizes (no stdin, no controlling terminal) and runs until it believes
-it is done. The **chute** is the unit of work moving through that harness.
+it is done. Having no terminal, a harness's stdout and stderr are captured
+by hahod and ride its structured log. SIGTERM to a harness means
+drain-and-land — finish the chunk in hand, emit the completion, exit;
+SIGKILL means the sweeper cleans up after it. The **chute** is the unit of
+work moving through that harness.
 Residency is deliberate and narrow: **the daemon is resident; every
 harness and its chute are ephemeral.** Two facts force a resident daemon,
 and they are easier one at a time. First: lane budgets are machine-wide
@@ -491,8 +506,9 @@ hahod's responsibilities are few and closed, and worth enumerating because
 "thicker than expected" should still be countable: sessions, with an idle
 TTL of hahod's own (a session created but never tasked sits *before* any
 lease exists, so nothing else can reap it); admission against lane
-budgets; the **sweeper**, which walks the store and kills any harness
-whose scope is no longer valid; publishing completions to the bus; and
+budgets; the **sweeper**, which walks the store, kills any harness whose
+scope is no longer valid, and reaps orphaned scratch directories left by
+crashed chutes; publishing completions to the bus; and
 holding the hm leases of section 13. Those leases complete a reaping
 invariant: heartbeats begin when a harness accepts tasking — no valid
 tasking, no heartbeats; no heartbeats, no lease renewal; no renewal,
@@ -927,13 +943,16 @@ implementation is Go inside the chute):
 
 The mechanisms, made concrete enough to implement:
 
-- **Window-miss detection maps error classes, per backend.** Each backend
-  implementation declares which of its errors mean "the window rejected
-  this" — for api kinds the provider's context-length error class and
-  truncated output; for AFM the framework's size errors and empty output on
-  non-empty input; for MLX the server's declared limits. The full shape of
-  this mapping is implementation detail, still being learned from
-  operationalizing wonderlib, and deliberately not frozen here.
+- **Window-miss detection maps error classes, per backend — and the
+  interface is frozen here.** Every backend implementation MUST provide the
+  mapping `error -> { window_miss: bool, retryable: bool }`: window-miss
+  true routes the error to the resize arm of the ladder, retryable true
+  sends it to the attempt-with-retry loop, and both false propagates it
+  immediately. The interface is contract; the per-backend mapping *tables*
+  remain open and are learned from operationalizing wonderlib — for api
+  kinds the provider's context-length error class and truncated output; for
+  AFM the framework's size errors and empty output on non-empty input; for
+  MLX the server's declared limits.
 - **The window itself gets a benchmark.** `haho bench` (the suite is
   defined in section 15) measures, per backend and per hardware, the
   coherence boundary: declare N as the maximum input (in the chunker's
@@ -1020,7 +1039,9 @@ per-job cost, wall at 0.42 of serial), so it takes an ordinary budget
 check, shipped at the measured floor of 3. One welcome consequence: the
 interpreting pipeline's transcribe and smooth stages contend less than the
 single-lane model feared. The api budget is wide because someone else owns
-those GPUs. A
+those GPUs — and deadline-bearing jobs on the api lane are admitted
+optimistically: api latency is weather, not arithmetic, so the deadline
+enforces what admission cannot predict. A
 deadline-bearing job that cannot be admitted before its deadline is DROPPED
 at admission — failing before spending is the freshness rule applied to the
 queue itself, and it requires exactly the single queue view that
@@ -1099,7 +1120,10 @@ is a real workload:
   requestor's synchronous copy is a convenience. The record carries model,
   lane, chunks, cache hits, tokens, and wall time — everything, because
   logs could not reconstruct the flight even in principle: the work happened
-  on the metal, inside frameworks that do not narrate.
+  on the metal, inside frameworks that do not narrate. Full model inputs
+  stay OUT of the record on purpose — bus bloat, content leakage — and
+  replay or audit reaches the inputs through the content-addressed cache
+  keys the record carries.
 - **The lease.** Every chute has an explicit lease with hm, and the lease is
   a contract like anything else on this mesh. Mechanically it is a
   Kubernetes Lease object — a small fleet-side record with a holder and an
@@ -1128,6 +1152,10 @@ is a real workload:
   nothing else is inherited.
 - The status endpoint is read-only and binds loopback. There is no mutating
   surface on a chute in flight; jobs are immutable once accepted.
+- The sandbox covers *reach*; rlimits cover *appetite*: hahod sets
+  process-level resource limits at spawn — CPU and memory rlimits, and a
+  disk quota on the scratch directory — so a runaway chute exhausts its own
+  allowance, not the machine.
 - A chute holds only what its one job needs. A job with no api backend
   holds no credential and reaches nothing beyond loopback. The blast radius
   is one job, and then the process is gone.
@@ -1229,6 +1257,15 @@ made one API generation earlier.
   exists so nobody pretends otherwise. Candidate shapes (scope-stamped
   group ids swept against hm's lease truth; broker-side idle-group
   expiry) are noted, not chosen.
+- **Chute framework access.** A Go chute cannot call AFM, Speech, or
+  Translation directly: they are Swift/Objective-C frameworks. The
+  mechanism is undecided, with the candidates named so it is a choice
+  rather than a discovery: (a) cgo bridges into the frameworks; (b) a small
+  Swift shim binary per framework door, spoken to over the pipe; (c) a
+  resident Swift helper on the pattern the MLX server already implies.
+  cardinal's python `apple-fm-sdk` bridge is the existence proof that the
+  shim shape works. Decided at first implementation of the AFM door, not
+  before.
 - **Cancellation.** Jobs are immutable and chutes are not directable, so
   the only in-flight signal today is process termination by hahod
   (deadline enforcement). Whether requestors get a graceful cancel — and
