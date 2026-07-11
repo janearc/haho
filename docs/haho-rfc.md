@@ -1022,9 +1022,11 @@ The staged proof:
 - **The speedy RFC — ratification blocker.** This document leans on speedy
   (deadline semantics, near-real-time promises, the deposit pattern) while
   speedy has no RFC of its own. That is not acceptable for ratification:
-  haho cannot be ratified against an undefined dependency. speedy is
-  probably an RFC against big-little-mesh rather than a document in this
-  repo; deciding that, and writing it, precedes ratification here.
+  haho cannot be ratified against an undefined dependency. Venue is decided
+  (operator, 2026-07-11): speedy is an idea, not software — its build
+  surface is proto changes, and haho is its primary driver — so its RFC
+  lives in this repo, at `docs/speedy-rfc.md`. Writing it precedes
+  ratification here.
 - **Cache fingerprints per backend.** The key includes a model fingerprint;
   each backend must define one. api models report identifiers; MLX can
   fingerprint weights; AFM offers no version API, so its fingerprint
