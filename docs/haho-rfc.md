@@ -24,9 +24,9 @@
   section 18.
 - Code convention: illustration code in this document is scheme — it reads
   well, and it cannot be mistaken for a commitment. Where the document shows
-  Go, python, or protobuf, we mean it: that code is functional or is the
-  contract itself, and we commit to it. The sandbox profiles are SBPL, which
-  is already scheme; the platform got there first.
+  Go, python, Swift, or protobuf, we mean it: that code is functional or is
+  the contract itself, and we commit to it. The sandbox profiles are SBPL,
+  which is already scheme; the platform got there first.
 
 > "Have you ever tried to develop through Docker? It's sometimes a huge
 > pain in the ass … it works on any machine you use it — like, **it works
@@ -42,29 +42,10 @@ haho is the piece that bridges it, and this document is for two readers: the
 engineer who wants to run real backend software on their own laptop, and the
 engineer who merely recognizes the position and wants to see it solved.
 
-Contents:
-
-1. What haho is
-2. The discernment equation
-3. The principle: borg-shaped, fruit-flavored
-4. Execution lanes
-5. Placement: virtualization, containerization, and isolation
-6. Residency
-7. The lifecycle of a chute
-8. The programming interface
-9. Framing and the coherence window
-10. Dispatch and lanes
-11. Sidecars and haho
-12. The first consumers
-13. Observability
-14. Security posture
-15. Graduation and the end-to-end proof
-16. Non-goals
-17. Open questions
-18. Definitions, prior work, future work
-19. References
-
-Appendices: A — the 70x, reproducibly. B — the ANE serializes, measured.
+The section headings are the index — the rendered view generates an outline
+from them, and `grep '^## '` does the same for a shell. Appendices: A — the
+70x, reproducibly. B — the ANE serializes, measured. C — the two ANE doors,
+measured.
 
 ## 1. What haho is
 
@@ -90,7 +71,10 @@ The reason haho exists is cost. The same unit of work can be done many ways
 the other side of the network — and the difference between the right way
 and the wrong way is not a percentage. It is the difference between
 feasible and infeasible (section 4, and Appendix A: 70x, measured on this
-hardware), or between free and $2.58 per diff review. Models get cheaper
+hardware), or between free and $2.58 per diff review. Feasible is not a
+shrug here — not "too expensive" or "can't be done" — it is defined
+mathematically in section 2, as a computed set; and the set usually has
+more than one member, because there is more than one way to do it.[^13] Models get cheaper
 and more capable over time, so the dollar figure is a snapshot — but a
 dozen reviews a day must not bill an api a dozen times for work this
 machine does free. haho is the piece of software that lets every pipeline
@@ -121,20 +105,26 @@ Every job haho runs is an instance of one question:
 > degree of accuracy, such that the value of the work is proportionate to
 > the cost of the processing needed to accomplish it?
 
-Stated as the equation the rest of this document keeps referring to. For a
-unit of work `w` and a set of candidate placements `P` (the lanes of section
-4, plus the paid APIs):
+Stated as the equation the rest of this document keeps referring to, in the
+illustration register. For a unit of work `w` and the candidate placements
+(the lanes of section 4, plus the paid APIs):
 
-```text
-feasible(w) = { p in P : capable(p, w)  and  eta(w, p) <= deadline(w) }
+```scheme
+;; the discernment equation
+(define (feasible w)
+  (filter (lambda (p)
+            (and (capable? p w)
+                 (<= (eta w p) (deadline w))))
+          placements))
 
-place(w)    = argmax over p in feasible(w) of
+(define (cost w p)
+  (+ (dollars p) (energy p) (occupancy w p)))
 
-                 value(w) * accuracy(w, p)
-                 -------------------------
-                       cost(w, p)
-
-where cost(w, p) = dollars(p) + energy(p) + occupancy(w, p)
+(define (place w)
+  (argmax (lambda (p)
+            (/ (* (value w) (accuracy w p))
+               (cost w p)))
+          (feasible w)))
 ```
 
 `occupancy` is the opportunity cost of holding a contended lane (section
@@ -184,12 +174,21 @@ design:
   chain inherits each new link free. The same bet is more precarious on
   Linux, where nobody owns the whole chain.
 
+The same integration cuts the other way, and honesty requires saying so:
+the ecosystem restricts what can be invented against it. Building a
+realtime interpreting pipeline on macOS is hard; on iOS it is harder still.
+The nice interfaces and the tight hardware-software integration are also
+the shackles — Apple's frameworks decide what a process may do with the
+silicon, and inventing something the platform did not anticipate means
+prying at seams the platform does not advertise. haho is that pry-bar:
+it opens the seams that exist without leaving the platform, which is the
+only place the fast paths are.
+
 No existing runtime is both. Kubernetes-shaped tooling on this platform puts
 work inside Linux virtual machines where none of the Apple hardware or
 frameworks exist (section 5). Apple-native software has no job contracts, no
 scheduler, no fleet. We need a name for the combination, so: **borg-shaped,
-fruit-flavored**. Borg-shaped is the grammar — the following are assumptions
-of this document, not aspirations:
+fruit-flavored**. Borg-shaped is the grammar:
 
 - Work is described by typed specs, never by convention.
 - Execution emits events; completions are durable records.
@@ -268,9 +267,9 @@ Work placement on this machine, by hardware path:
 | Lane | Entered through | Runs | Character |
 |---|---|---|---|
 | metal (GPU) | MLX, via a resident model server | whisper large-v3, mlx-lm models | highest local throughput; contended — budgets in section 10; the 70x side of Appendix A[^8] |
-| ane (Neural Engine) | AFM (Foundation Models)[^4], Speech (`SpeechTranscriber`), Translation, CoreML[^5] | the on-device foundation model[^10]; streaming transcription; on-device machine translation | designed to run concurrently with the GPU; low power; small coherence windows (section 9) |
+| ane (Neural Engine) | AFM (Foundation Models)[^4], Speech (`SpeechTranscriber`), Translation, CoreML[^5] | the on-device foundation model[^10]; streaming transcription; on-device machine translation | designed to run concurrently with the GPU; low power; small coherence windows (section 9); concurrency is per-door, measured (Appendices B, C) |
 | api (network) | HTTP to a model endpoint[^7] | claude, deepseek, anything with a served model | capable of what no local model is; costs dollars and round trips |
-| cpu | plain code | chunking, filters, synthesis assembly, voice-activity detection (VAD — deciding where speech starts and stops) | reliable glue |
+| cpu | plain code | chunking, filters, synthesis assembly, voice-activity detection (VAD — deciding where speech starts and stops) | simple code patterns |
 
 torch does not appear in this table on purpose: haho is *fruit-native* by
 definition, and torch on this hardware loses the cost equation by roughly
@@ -438,58 +437,73 @@ deliberately written to a furnished store or published to the bus.
 A HAHO jump opens high and rides a long descent to a precise landing. A
 chute lives exactly one jump.
 
-1. **Creation.** The harness accepts a `JobSpec` and admits it against lane
-   budgets (section 10). Jobs are immutable once created and accepted to
+1. **Creation.** `hahod` accepts a `JobSpec`, admits it against lane
+   budgets (section 10), and creates a **harness** — the scope and sandbox
+   the chute executes in. Jobs are immutable once created and accepted to
    run: there is no reconfiguration of a job in flight. The creation record
    carries the job id and the chute's status address (loopback, ephemeral
    port).
 2. **Descent.** The chute is queryable but not directable: the status
    endpoint answers with state, time in flight, progress, lane and model in
-   use — read-only, for the whole working life. Progress events flow to the
-   harness (section 13). Work can take a long time; a living chute can
+   use — read-only, for the whole working life. Progress events flow to
+   `hahod` (section 13). Work can take a long time; a living chute can
    always say so.
 3. **Landing.** One terminal `JobCompletion` — outcome, result, model used,
    chunk and cache statistics, wall time. The process exit status is the
    coarse cross-check: a completion/exit disagreement is treated as FAILED
-   by the harness regardless of what either says alone. The scratch
-   directory is deleted; the process is gone.
+   by `hahod` regardless of what either says alone. The scratch directory
+   is deleted; the process is gone.
 
 Chutes are plural: one chute per unit of work, arbitrarily many in flight,
 bounded by lane budgets rather than by the contract. The budgets are
-measured facts about the hardware, not tuning opinions — Appendix B is the
-measurement that verifies Apple polices its own silicon (the ANE serializes
-and refuses to pretend otherwise), and it is why plural chutes never means
-plural tenants on a serial device.
+measured facts about the hardware, not tuning opinions — and the
+measurements disagree in an instructive way: the ANE's two front doors
+behave differently under concurrency (AFM queues strictly, Speech runs
+concurrent — Appendices B and C), which is why budgets attach to *doors*,
+not to the lane, and why plural chutes never means plural tenants on a
+serial device.
 
 ## 8. The programming interface
 
-### The harness and its clients
+### The daemon, the harness, the chute
 
-haho runs as one resident harness — `hahod`. This is deliberate, not a
-drift from ephemerality: **the harness is resident; every chute is
-ephemeral.** Two facts force a resident harness, and they are easier one at
-a time. First: lane budgets are machine-wide facts, so exactly one
-admission point must see every job (section 10 records the review catch
-that forced this). Second: a session exists before its task arrives, and
-that gap needs a home. So the harness holds sessions and queues —
-bbolt-shaped, on disk, survivable — and nothing else. It does no model
-work. Every admitted job still runs as its own sandboxed process with its
-own lifetime.
+Three words, held apart on purpose. `hahod` is the resident daemon. A
+**harness** is what hahod creates per accepted job: the scope and sandbox
+one chute executes in — a subordinate but not fixed process, in that it
+daemonizes (no stdin, no controlling terminal) and runs until it believes
+it is done. The **chute** is the unit of work moving through that harness.
+Residency is deliberate and narrow: **the daemon is resident; every
+harness and its chute are ephemeral.** Two facts force a resident daemon,
+and they are easier one at a time. First: lane budgets are machine-wide
+facts, so exactly one admission point must see every job (section 10
+records the review catch that forced this). Second: a session exists
+before its task arrives, and that gap needs a home. So hahod holds
+sessions and queues, and does no model work.
 
-The harness's responsibilities are few and closed, and worth enumerating
-because "thicker than expected" should still be countable: sessions, with
-an idle TTL of the harness's own (a session created but never tasked sits
-*before* any lease exists, so nothing else can reap it); admission against
-lane budgets; the watchdog that kills what should not be running;
-publishing completions to the bus; and holding the hm leases of section 13.
-Those leases complete a reaping invariant: heartbeats begin when a chute
-accepts tasking — no valid tasking, no heartbeats; no heartbeats, no lease
-renewal; no renewal, reaped. A fallow chute structurally cannot outlive one
-heartbeat window, not because a cleanup job hunts strays but because
-existence-without-scope has no mechanism to sustain itself. hahod kills; hm
-observes and alarms; the fleet never reaches onto the host.
+hahod keeps exactly **one store** — bbolt-shaped, on disk, survivable —
+recording sessions, harness process ids, and their scopes. This is a
+deliberate consolidation: the same rows the sweeper walks are the rows the
+hm leases mirror, and nothing else on the machine keeps a second copy. hm's
+lease state is kube-native and *derived* (from heartbeats), not a database;
+harnesses and chutes persist nothing of their own.
 
-Clients speak to the harness over loopback HTTP. The `haho` CLI is a thin
+hahod's responsibilities are few and closed, and worth enumerating because
+"thicker than expected" should still be countable: sessions, with an idle
+TTL of hahod's own (a session created but never tasked sits *before* any
+lease exists, so nothing else can reap it); admission against lane
+budgets; the **sweeper**, which walks the store and kills any harness
+whose scope is no longer valid; publishing completions to the bus; and
+holding the hm leases of section 13. Those leases complete a reaping
+invariant: heartbeats begin when a harness accepts tasking — no valid
+tasking, no heartbeats; no heartbeats, no lease renewal; no renewal,
+reaped. A fallow harness structurally cannot outlive one heartbeat window,
+not because a cleanup job hunts strays but because existence-without-scope
+has no mechanism to sustain itself. hahod kills; hm observes and alarms;
+the fleet never reaches onto the host. The sweeper's jurisdiction ends at
+the host, and section 17 records the mesh-side half of the problem it
+solves locally.
+
+Clients speak to hahod over loopback HTTP. The `haho` CLI is a thin
 wrapper over the same API:
 
 ```console
@@ -762,7 +776,7 @@ Mid-descent, anything on the machine can ask the chute directly:
 
 ```console
 $ curl -s 127.0.0.1:52341/status
-{"jobId":"interp-8841-s17","state":"busy","inFlightMs":1290,
+{"jobId":"sig-corpus-c041","state":"busy","inFlightMs":1290,
  "stage":"map","chunksDone":2,"chunksTotal":4,"lane":"ane","model":"afm"}
 ```
 
@@ -789,9 +803,14 @@ A wonderlib distillation. The requestor has decided — this is discernment,
 worked externally — that no large local model comes up for this: the
 document is chunked through the on-device foundation model, and those
 per-chunk results are the map half of mapesis. The synthesis half runs on
-the local ollama mistral — the sturdy workhorse[^5] — because the entire
-point of this machinery is to avoid paying an api for work the machine does
-free; the api lane is the escalation, not the default:
+the local ollama mistral. One disambiguation matters here: this is the
+6-bit gguf quantization served by ollama over the api-shaped loopback door,
+which is a different artifact from the Mistral Apple advertises for the
+Apple stack via Core AI[^5] — same family, different weights, different
+lane, and a spec names which one it means. The escalation runs local
+because the entire point of this machinery is to avoid paying an api for
+work the machine does free; the paid api lane is the last resort, not the
+default:
 
 ```json
 {
@@ -810,29 +829,40 @@ free; the api lane is the escalation, not the default:
 }
 ```
 
-mackerel's interpreter stage, deadline-bound:
+lloyd's smoothing of one segment, deadline-bound. lloyd is the
+text-smoothing frood (the name because "destupidification" is not a
+suitable name for a piece of software, section 18), and inside the
+interpreting pipeline it is the stage between transcription and delivery.
+A 50-to-100-word segment fits the window whole, so there is no mapesis
+here — mapesis over two sentences would be machinery for its own sake;
+resize is the contingency, concat the reassembly, and the deadline does
+the talking:
 
 ```json
 {
-  "jobId": "interp-8841-s17",
+  "jobId": "lloyd-8841-s17",
   "correlationId": "sess-8841/seg-17",
   "payload": {"text": "<50-100 words of whisper output for this segment>"},
   "backend": {"kind": "AFM"},
   "framing": {"strategy": "RESIZE_ON_FAIL", "chunker": "SENTENCES",
               "chunkSize": 3, "maxAttemptsPerChunk": 2,
               "backoff": {"initialMs": 50, "multiplier": 2.0, "maxMs": 400}},
-  "synthesis": {"mode": "MAPESIS",
-                "backend": {"kind": "AFM"},
-                "instruction": "{# jinja2 #} Merge these smoothed sentences; carry meaning, drop disfluency, spoken register: {{ chunks }}"},
+  "synthesis": {"mode": "CONCAT"},
   "cache": {"kind": "SURREALDB", "ttlSeconds": 900},
   "deadline": {"deadlineMs": 3000, "onLate": "DROP"}
 }
 ```
 
-The transcription job that feeds it is one more spec, not a special case:
-`backend {kind: MLX, model: "whisper-large-v3", params {task: "translate"}}`,
-payload `raw` audio, framing `WHOLE_OR_ERROR` (the client cut the segment to
-size before sending it), deadline `DROP`.
+The pipeline this spec sits inside is mackerel, end to end: an audio
+stream arrives at a client-side buffer that knows where to cut; each cut
+segment goes to whisper on the metal lane; that text needs lloyd (the
+spec above); lloyd's output is rendered to audio in the listener's
+preferred language and delivered alongside the smoothed transcript. The
+transcription hop is one more spec, not a special case: `backend {kind:
+MLX, model: "whisper-large-v3", params {task: "translate"}}`, payload
+`raw` audio, framing `WHOLE_OR_ERROR` (the client cut the segment to size
+before sending it), deadline `DROP`. Rendering and delivery belong to the
+client (section 12).
 
 Pluggability is exactly the enum surfaces: backends, chunkers, synthesis
 modes, cache kinds, filters. Each is a Go interface with a registry behind
@@ -948,17 +978,19 @@ lane only when the equation says so.
 ## 10. Dispatch and lanes
 
 Dispatch in haho is borg in miniature, and it lives in exactly one place:
-the harness. An earlier draft put admission in a per-requestor library;
+`hahod`. An earlier draft put admission in a per-requestor library;
 review caught the contradiction — two requestors each enforcing "one metal
 tenant" locally admit two metal tenants globally. Budgets are per-machine
-facts, so the machine gets one admission point (`hahod`, section 8), and
+facts, so the machine gets one admission point (section 8), and
 requestors are clients of it.
 
 ```json
 {
   "lanes": {
     "metal": { "budget": 1,  "queue": 4  },
-    "ane":   { "budget": 1,  "queue": 8  },
+    "ane":   { "doors": { "afm":    { "budget": 1 },
+                          "speech": { "budget": 3 } },
+               "queue": 8 },
     "api":   { "budget": 16, "queue": 64 },
     "cpu":   { "budget": 8,  "queue": 32 }
   }
@@ -975,14 +1007,20 @@ One whisper stream is heavy on metal: `budget = floor(1 / utilization) =
 the budget arithmetic already accommodates it, and nothing changes at the
 contract.
 
-The ane budget is 1, and unlike the metal budget it is a measurement rather
-than an estimate: the Neural Engine serializes (Appendix B). Concurrent
-submissions do not degrade it — service time stays constant and the excess
-simply waits — so the ane queue is safe for FINISH work and exactly
+The ane budgets are **per-door**, and both are measurements rather than
+estimates — and they differ. AFM's door serializes strictly (Appendix B):
+concurrent submissions do not degrade it — service time stays constant and
+the excess simply waits — so its queue is safe for FINISH work and exactly
 predictable for DROP work. That predictability is a gift to admission:
-expected wait on the ane lane is queue-depth times the measured service
-time, which makes the deadline check exact arithmetic instead of a guess.
-The api budget is wide because someone else owns those GPUs. A
+expected wait behind AFM's door is queue-depth times the measured service
+time, which makes the deadline check exact arithmetic instead of a guess —
+but it is an *AFM-door* property, not an ane-lane property. Speech's door
+is genuinely concurrent (Appendix C: three heavy transcriptions at ~20%
+per-job cost, wall at 0.42 of serial), so it takes an ordinary budget
+check, shipped at the measured floor of 3. One welcome consequence: the
+interpreting pipeline's transcribe and smooth stages contend less than the
+single-lane model feared. The api budget is wide because someone else owns
+those GPUs. A
 deadline-bearing job that cannot be admitted before its deadline is DROPPED
 at admission — failing before spending is the freshness rule applied to the
 queue itself, and it requires exactly the single queue view that
@@ -1012,10 +1050,10 @@ boundary as:
 | lifetime | the service | the job |
 | carries | its resident's froody citizenship | a JobSpec and nothing else |
 | runs as | fleet pod | sandboxed native process |
-| created by | deployment, with its service | the harness, at admission |
+| created by | deployment, with its service | hahod, at admission |
 
 A chute does not get a sidecar. Its fleet-side representation is the lease
-the harness maintains for it (section 13), which costs nothing and dies with
+hahod maintains for it (section 13), which costs nothing and dies with
 the job. If anything, haho strengthens the sidecar's definition: a sidecar
 is *only* the compliance carrier for a resident — any model work a resident
 wants is a JobSpec like everyone else's.
@@ -1066,12 +1104,12 @@ is a real workload:
   a contract like anything else on this mesh. Mechanically it is a
   Kubernetes Lease object — a small fleet-side record with a holder and an
   expiry, which the holder must renew to keep; the fleet's standard
-  liveness primitive, adopted for delightd's needs and reused here. The
-  harness takes the lease at admission (labeled from the spec), renews it
-  through the descent, and releases it at landing. The fleet therefore sees
+  liveness primitive, adopted for delightd's needs and reused here. hahod
+  takes the lease at admission (labeled from the spec), renews it through
+  the descent, and releases it at landing. The fleet therefore sees
   every host-side flight as a first-class object: dashboards list them, and
   a lease that lapses without a landing is, by construction, the alarm for
-  a hung or orphaned flight — including the case where the harness itself
+  a hung or orphaned flight — including the case where hahod itself
   died and cannot say so. Expiry is the garbage collection.
 - **Structured JSON logging** throughout, per fleet rule; a bare print is a
   lint error.
@@ -1134,13 +1172,18 @@ The staged proof:
 `haho bench` is not a one-off: it is a named, versioned suite that ships
 with haho, so every number this document leans on can be re-verified at
 will. The suite so far: **bench-70x** (Appendix A, the metal/torch gap),
-**bench-ane-serialization** (Appendix B, why the ane budget is 1),
-**bench-cross-lane** (proof 3 above, the concurrency hypothesis), and
+**bench-ane-serialization** (Appendix B, why AFM's door budget is 1),
+**bench-speech** (Appendix C: realtime factor, door concurrency, and the
+accuracy taxonomy; its confidence-attribute variant — does Speech flag its
+own errors where they actually occur — is planned and has not yet been
+run), **bench-cross-lane** (proof 3 above, the concurrency hypothesis), and
 **bench-window** (N and D, section 9). Each run reports under the same
 hardware-signature discipline as the appendices, which is the point: send
 the suite to a friend with a newer machine, re-run it when the OS updates —
 localhost is, after all, a 27 beta running six months ahead — and the
-document's claims re-ground themselves instead of fossilizing.
+document's claims re-ground themselves instead of fossilizing. Appendix C
+is that argument working in practice: it contradicts a true observation
+made one API generation earlier.
 
 ## 16. Non-goals
 
@@ -1148,8 +1191,8 @@ document's claims re-ground themselves instead of fossilizing.
   at n>1 that haho as specified would be moot.
 - **Containers or VMs as chute shapes.** Section 5. Fleet services stay in
   containers; chutes are native processes.
-- **Resident chutes.** The harness is resident (it holds queues and
-  sessions, and does no model work); a chute never is.
+- **Resident chutes or harnesses.** hahod is resident (it holds queues and
+  sessions, and does no model work); a harness and its chute never are.
 - **Owning models or weights.** The MLX server belongs to
   big-little-mesh's apple-silicon work; AFM belongs to the OS; ollama can
   be furnished if a job needs it. haho exposes furnished resources to jobs
@@ -1175,8 +1218,19 @@ document's claims re-ground themselves instead of fossilizing.
 - **TOKENS chunking.** Requires a tokenizer per backend (tiktoken-style for
   api kinds, mlx-lm's for metal, nothing public for AFM). Marked FUTURE in
   the contract; SENTENCES and MARKDOWN_SECTIONS carry the near-term load.
+- **Scope cleanup beyond the host.** hahod's sweeper kills harnesses whose
+  scope is no longer valid, and that jurisdiction ends at the host
+  boundary. The mesh-side half is harder and is named as ours: a
+  kafka-resource consumer — a consumer group holding partitions, offsets,
+  a topic's attention — whose scope has died has no kafka-native reaper,
+  and the bus will happily carry its debris indefinitely. Cleaning up
+  kafka-resource-consuming things that no longer have a valid scope is a
+  genuinely hard problem for kafka, we have this problem, and this line
+  exists so nobody pretends otherwise. Candidate shapes (scope-stamped
+  group ids swept against hm's lease truth; broker-side idle-group
+  expiry) are noted, not chosen.
 - **Cancellation.** Jobs are immutable and chutes are not directable, so
-  the only in-flight signal today is process termination by the harness
+  the only in-flight signal today is process termination by hahod
   (deadline enforcement). Whether requestors get a graceful cancel — and
   what "graceful" means mid-map — is deferred until a consumer needs it.
 - **Coherence-window benchmarking method.** Section 9 defines N and D and
@@ -1282,7 +1336,7 @@ never mistake an aspiration for an artifact.
   hardest to read), cutting the hard parts smaller, and feeding a very
   small model pieces it could digest. wonderlib is the successor library;
   its chunking, re-read, backoff, and caching are what section 9 promotes
-  into the harness.
+  into haho.
 ### Future work (not built; second and third steps on this road)
 
 - **mackerel** — the live-interpreting pipeline. Named because babelfish is
@@ -1377,6 +1431,9 @@ document.
     <https://github.com/janearc/big-little-mesh/tree/main/apple-silicon>.
     The Swift work that owns host-side model serving for the mesh.
 
+[^13]: "There's more than one way to do it" — Perl's motto, per Larry Wall,
+    the patron saint of exactly this kind of pluralism.
+
 [^12]: ThePrimeagen, at 9:34:
     <https://www.youtube.com/watch?v=8eXiWkPSb50&t=855s> (retrieved
     2026-07-12). Lightly trimmed from the spoken transcript; emphasis the
@@ -1445,7 +1502,9 @@ on metal (the 70x), and Apple Speech on the ane, where the OS treats
 transcription as nearly free (the integration point of section 4) — with
 the ane number carrying its framing caveat (section 9), since
 `SpeechTranscriber`'s speed is bought at a coherence cost on proper nouns
-and code-switching.
+and code-switching. Appendix C now carries the Speech half of that
+comparison (63–77x realtime, measured), including the proper-noun receipt;
+the three-way single-file run remains wanted.
 
 ## Appendix B: the ANE serializes, measured
 
@@ -1514,12 +1573,147 @@ async def main():
 asyncio.run(main())
 ```
 
-Two caveats ride with the finding. This measured **AFM**; the original
-observation was **Speech** — the same device queue is overwhelmingly likely
-but not proven by this run, and bench-ane-serialization should grow a
-Speech round. And the METAL+ANE **cross-lane** hypothesis (section 4,
-statement 2) is untouched by these numbers: whisper on the GPU while AFM
-works the ANE is still bench-cross-lane / graduation proof 3 — and it is
-now more load-bearing, because with the ANE serial within itself, the
-realtime ambitions rest entirely on the lanes being concurrent with each
-other.
+Two caveats rode with this finding when it was first recorded, and one has
+since resolved — instructively. This measured **AFM**; the original
+observation was **Speech**, and "the same device queue is overwhelmingly
+likely" turned out to be **wrong**: Appendix C ran the Speech round and
+found the opposite behavior — Speech's door is concurrent. The ANE's
+serialization is a property of a door, not of the lane, and the safe-sounding
+inference from one door to the other did not survive measurement. The
+second caveat stands: the METAL+ANE **cross-lane** hypothesis (section 4,
+statement 2) is untouched by these numbers — whisper on the GPU while AFM
+works the ANE is still bench-cross-lane / graduation proof 3, and it is
+still where the realtime ambitions rest.
+
+## Appendix C: the two ANE doors, measured
+
+The companion measurement to Appendix B, run 2026-07-11 on the same
+hardware signature (`663bbc4d197add27`), macOS 27.0 beta (build 26A5368g):
+the same serialization probe shape pointed at the ane lane's *other* front
+door, `SpeechAnalyzer`/`SpeechTranscriber`. It answers two questions —
+how fast, and how concurrent — and begins a third (how honest about its
+own errors).
+
+Method. Ground truth first: three distinct ~70-word paragraphs, rendered
+to audio by `say` — deterministic, shareable fixtures with a named caveat:
+synthetic-clean TTS audio is easy mode for ASR, so accuracy numbers here
+are optimistic relative to walking-around recordings. Short (~20s) and
+heavy (~200s, ten repetitions per paragraph) rounds; one
+`SpeechAnalyzer` + `SpeechTranscriber` per task so the concurrent round
+has no shared-instance excuse; model assets installed and warmed before
+any timing.
+
+| Round | Shape | Per-job | Wall | Reading |
+|---|---|---|---|---|
+| short, serial | 3 clips (~20s each) | 0.35–0.40s | 1.12s (sum) | 49–62x realtime |
+| short, concurrent | 3 tasks, one process | 0.43–0.50s | 0.50s | wall/sum 0.45 — but compute is too small to trust (Appendix B's tiny-prompt lesson) |
+| heavy, serial | 3 clips (~200s each) | 3.13 / 2.85 / 2.94s | 8.92s (sum) | 63–77x realtime, consistent |
+| heavy, concurrent | 3 tasks, one process | 3.47 / 3.59 / 3.77s | 3.77s | **wall/sum = 0.42 — concurrent**, ~20% per-job cost |
+
+Against AFM's 1.01 staircase under the identical test shape, the finding
+is unambiguous: **the ANE's two front doors behave differently.** AFM
+queues strictly; Speech runs three heavy transcriptions nearly as fast as
+one. Whatever arbitration Apple performs under these frameworks, it is
+per-door, and budgets must therefore attach to doors (section 10).
+
+This result *contradicts* a true operator observation from turtledove-era
+load testing, and the reconciliation matters more than the contradiction:
+the old `SFSpeechRecognizer` API was one-request-at-a-time by design;
+`SpeechAnalyzer` is a ground-up rewrite; and localhost runs a beta six
+months ahead of the world. Both observations are plausibly true of the
+doors and builds they were made against — which is the entire argument for
+bench-speech being a re-runnable suite entry rather than a fossilized
+finding (section 15).
+
+Accuracy, against ground truth (word error rate 6.1% / 8.1% / 1.6% before
+normalization). Raw WER overstates real errors: `thirty→30`,
+`seventeen→17`, `first→1st`, `harbor master→harbormaster` are
+normalization choices, not mistakes. The real errors sort into exactly
+three classes:
+
+- **homophones** — `flour→flower`, `hulls→halls`, `ferries→fairies`: the
+  class a context-bearing smoothing stage (lloyd, section 8's worked spec)
+  fixes for free, which the interpreting pipeline's design anticipated;
+- **proper nouns** — `Distelkade→"distal cade"`: turtledove's recorded
+  "weaker on proper nouns" trade, now with a receipt;
+- **unstable domain terms** — `arcsecond→arxicond / anarxicond /
+  arcticond`: *different* wrong answers across ten repetitions of the same
+  sentence, the most interesting cell in the table — the model is not
+  consistently wrong, it is unsettled.
+
+The third question — does Speech *flag* its errors where they occur — is
+begun, not answered: the confidence-attribute variant of bench-speech
+(correlating reported confidence against the error positions above) is
+planned and has not been run.
+
+The probe (functional; it produced the numbers above — Swift is committed
+code by this document's convention):
+
+```swift
+// bench-speech — realtime factor, serial vs concurrent, transcripts out
+// swift bench_speech.swift <fixture-dir> [clip-prefix]
+import AVFoundation
+import Foundation
+import Speech
+
+let scratch = CommandLine.arguments.count > 1
+    ? CommandLine.arguments[1] : FileManager.default.currentDirectoryPath
+let prefix = CommandLine.arguments.count > 2 ? CommandLine.arguments[2] : "gt"
+func clipURL(_ i: Int) -> URL { URL(fileURLWithPath: "\(scratch)/\(prefix)_\(i).aiff") }
+
+@available(macOS 26, *)
+func transcribe(_ url: URL) async throws -> (text: String, wall: Double) {
+    let transcriber = SpeechTranscriber(locale: Locale(identifier: "en_US"),
+        transcriptionOptions: [], reportingOptions: [], attributeOptions: [])
+    let analyzer = SpeechAnalyzer(modules: [transcriber])
+    let collector = Task { () -> String in
+        var out = ""
+        for try await result in transcriber.results where result.isFinal {
+            out += String(result.text.characters)
+        }
+        return out
+    }
+    let file = try AVAudioFile(forReading: url)
+    let t0 = Date()
+    if let last = try await analyzer.analyzeSequence(from: file) {
+        try await analyzer.finalizeAndFinish(through: last)
+    } else {
+        await analyzer.cancelAndFinishNow()
+    }
+    return (try await collector.value, Date().timeIntervalSince(t0))
+}
+
+guard #available(macOS 26, *) else { print("UNAVAILABLE: needs macOS 26+"); exit(2) }
+
+// assets, then a warm pass, stay out of the timings
+if let req = try await AssetInventory.assetInstallationRequest(
+    supporting: [SpeechTranscriber(locale: Locale(identifier: "en_US"),
+        transcriptionOptions: [], reportingOptions: [], attributeOptions: [])]) {
+    try await req.downloadAndInstall()
+}
+_ = try await transcribe(clipURL(0))
+
+func duration(_ url: URL) throws -> Double {
+    let f = try AVAudioFile(forReading: url)
+    return Double(f.length) / f.processingFormat.sampleRate
+}
+
+var serialWall: [Double] = []
+for i in 0 ..< 3 {
+    let (text, wall) = try await transcribe(clipURL(i))
+    serialWall.append(wall)
+    try text.write(toFile: "\(scratch)/st_\(i).txt", atomically: true, encoding: .utf8)
+    let dur = try duration(clipURL(i))
+    print(String(format: "serial[%d]  %5.2fs  clip %5.2fs  rtf %.1fx", i, wall, dur, dur / wall))
+}
+print(String(format: "serial sum %.2fs", serialWall.reduce(0, +)))
+
+let t0 = Date()
+try await withThrowingTaskGroup(of: (Int, Double).self) { group in
+    for i in 0 ..< 3 { group.addTask { (i, try await transcribe(clipURL(i)).wall) } }
+    for try await (i, wall) in group { print(String(format: "gather[%d]  %5.2fs", i, wall)) }
+}
+let wall = Date().timeIntervalSince(t0)
+print(String(format: "gather wall %.2fs   wall/serial-sum = %.2f  (1.0=serialized, 0.33=concurrent)",
+             wall, wall / serialWall.reduce(0, +)))
+```
