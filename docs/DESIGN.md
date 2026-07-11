@@ -100,35 +100,51 @@ zoo into a single backend type: `ANTHROPIC_COMPATIBLE`. The OpenAI-shaped
 `/api/chat` path (Ollama et al.) remains a second type for endpoints that
 never learned Anthropic's wire.
 
-**2. Metal-bound local models via AFM.** The local workhorse is mistral-24b
-on the workstation's GPU, and as of WWDC26 the sanctioned Apple stack for
-that is real: the Foundation Models framework is opened to any provider
-conforming to its Language Model protocol, and the new Core AI framework
-ships curated open models — Mistral included — compiled ahead-of-time for
-Apple silicon, with tooling to convert PyTorch models. AFM is how our metal
-models get served; haho treats the AFM-hosted model as one more endpoint.
+**2. Local models on the Apple stack (AFM / Core AI / MLX) — and the
+constraint stated at full strength.** The constraint is not which model; it
+is which *stack*. On this hardware, inference is only real inference when it
+runs on the Apple-optimized stack — Metal and the ANE, reached through MLX
+and, as of WWDC26, AFM and the Core AI framework (curated open models
+including Mistral, ahead-of-time compiled for Apple silicon, with tooling to
+convert PyTorch models). The measured basis is ours, not vendor marketing:
+magpie's audio path ran **~70x faster across MLX than across torch** on the
+same machine. A model that falls back to CPU torch is not a slower backend;
+it is a different, useless category of computation. So the rule: **model
+execution happens in a macOS process on the Apple stack, or it does not
+happen.** There is no in-container fallback; a 70x-slower fallback is an
+outage wearing a costume.
 
-**The Metal-in-containers question (researched 2026-07-10, state named
-honestly).** Apple's `container` 1.0 (June 2026) runs each container in a
-micro-VM, and WWDC26 added persistent "container machines" — but there is
-**no native Metal/GPU passthrough**: the maintainers state it plainly, and
-the hardware reality (Apple GPUs are not behind an IOMMU) means classic
-passthrough may never come. The WWDC26 container-machines session does not
-mention GPU access at all. What exists today is the proxy pattern: a
-host-side daemon with direct Metal access serving inference over vsock into
-the guest — community toolkits (the "NVIDIA container toolkit for Apple
-silicon" shape) measure ~95% of native MLX throughput through that seam, and
-Docker's Model Runner does the same trick at the API level.
+**Why the instance can never do this itself (researched 2026-07-10, state
+named honestly).** Two locked doors, either one sufficient:
 
-**The design consequence, and why this problem dissolves:** the metal pins
-the *model server* to the host, not the *instance* to the host. An AFM/MLX
-model server runs host-side with real Metal; a haho instance in its container
-reaches it as an endpoint, exactly as it reaches the Anthropic API. Every
-backend is an endpoint; some endpoints happen to live on the host's metal.
-If Apple later grants containers real GPU access — the community pressure is
-loud and Apple has moved a long way in two WWDCs — the model server moves
-inside the image and *nothing in the contract changes*. We are not blocked
-on Apple, and we are positioned to benefit the day they ship.
+- *No Metal in the guest.* Apple's `container` 1.0 (June 2026) runs each
+  container in a Linux micro-VM, and there is no native GPU passthrough: the
+  maintainers state it plainly, and the hardware reality (Apple GPUs are not
+  behind an IOMMU) means classic passthrough may never come. The WWDC26
+  container-machines session does not mention GPU access at all.
+- *No AFM in the guest, ever.* AFM, Core AI, and MLX are macOS frameworks —
+  Swift APIs backed by Metal and the ANE that exist only inside macOS
+  processes. A Linux guest cannot call them regardless of what GPU access it
+  has; they are not present in that world to be called.
+
+What does exist is the crossing: a host-side daemon with native Metal/ANE
+access serving inference over vsock into the guest — community toolkits (the
+"NVIDIA container toolkit for Apple silicon" shape) measure ~95% of native
+MLX throughput through that seam, and Docker's Model Runner does the same
+trick at the API level. The serialization tax is on prompts and tokens,
+which is why it is small.
+
+**The design consequence: the macOS boundary is the model-server boundary.**
+The architecture's real seam is not "where the GPU is" but "where macOS is."
+Everything Apple-optimized — AFM, Core AI, MLX, the ANE — lives host-side,
+behind one model server with one queue; a haho instance in its Linux
+container reaches it as an endpoint, exactly as it reaches the Anthropic
+API. Every backend is an endpoint; the local ones happen to sit across the
+vsock at native speed. If Apple later grants containers real GPU access and
+a guest-callable inference surface — the community pressure is loud and
+Apple has moved a long way in two WWDCs — the model server moves inside the
+image and *nothing in the contract changes*. We are not blocked on Apple,
+and we are positioned to benefit the day they ship.
 
 ## Externalized state: surrealdb, RAG, and the cache
 
