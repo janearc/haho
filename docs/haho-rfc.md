@@ -30,10 +30,11 @@ Contents:
 16. Non-goals
 17. Open questions
 18. References
+Appendix A: the 70x, reproducibly
 
 ## 1. What this is for
 
-Nearly everything this estate builds reduces to the same sentence: take messy
+Nearly everything we build here reduces to the same sentence: take messy
 human material — speech, corpora, diffs — and produce *meaning* from it, under
 constraints of time, silicon, and cost. magpie turns walking-around audio into
 text. lloyd smooths bad text into good text. neal interprets the operator's own
@@ -46,7 +47,7 @@ Each of these decomposes into the same small set of stages: capture, cut,
 transcribe, smooth/interpret, synthesize, speak, cache. And on this hardware,
 each stage has a *correct* processor: transcription belongs on the GPU or the
 ANE, meaning-work belongs on the ANE's on-device model, synthesis-of-syntheses
-can afford an API model, glue belongs on the CPU. The estate has been building
+can afford an API model, glue belongs on the CPU. We have been building
 these stages one birb at a time, each birb hand-wiring its own model access,
 its own chunking, its own cache, its own retry behavior. That worked for
 proving the stages. It does not scale to composing them, and composition is
@@ -69,7 +70,8 @@ laptop, because — section 2 — a laptop is the only place this design works.
 
 ## 2. The principle: borg-shaped, fruit-flavored
 
-The design rule for this estate, stated once and referenced everywhere: keep
+The design rule for all of this software, stated once and referenced
+everywhere: keep
 the *grammar* of large-scale systems and run it on the *physics* of one Apple
 machine.
 
@@ -114,7 +116,8 @@ None of the following was designed toward haho. haho is what they add up to.
 
 - **magpie** proved the silicon law. Its transcription stage (whisper
   large-v3 on MLX) ran roughly **70x faster than the same workload across
-  torch** on the same machine. That number is the whole argument for stack
+  torch** on the same machine.[^8] Appendix A gives the hardware signature
+  and a re-runnable fragment. That number is the whole argument for stack
   correctness: a model on the wrong runtime is not slow, it is infeasible —
   the realtime ambitions of section 1 do not exist on torch. The law: model
   execution happens on the Apple-optimized stack, or it does not happen.
@@ -149,8 +152,8 @@ rest of the RFC schedules against:
 | Lane | Reached through | What runs there | Properties |
 |---|---|---|---|
 | METAL (GPU) | MLX, via a resident server | whisper large-v3, mlx-lm models | highest throughput; **contended** — effectively one heavy tenant at a time; measured 70x over torch |
-| ANE | AFM (Foundation Models), Speech (`SpeechTranscriber`), Translation, CoreML | the on-device ~3B model; streaming transcription; on-device MT | **concurrent with METAL**; low power; small models, small gullets; only Apple's frameworks can enter |
-| API | Anthropic-compatible and OpenAI-compatible HTTP | Claude, DeepSeek, anything speaking either wire | wide fan-out; costs money and round trips; needs the hostile network to cooperate |
+| ANE | AFM (Foundation Models)[^4], Speech (`SpeechTranscriber`), Translation, CoreML[^5] | the on-device ~3B model; streaming transcription; on-device MT | **concurrent with METAL**; low power; small models, small gullets; only Apple's frameworks can enter |
+| API | Anthropic-compatible and OpenAI-compatible HTTP | Claude, DeepSeek[^7], anything speaking either wire | wide fan-out; costs money and round trips; needs the hostile network to cooperate |
 | CPU | plain code | chunking, filters, synthesis glue, VAD | boring, reliable |
 
 Three facts shape everything downstream:
@@ -166,8 +169,8 @@ Three facts shape everything downstream:
 3. **The ANE is entered only through Apple's front doors.** There is no
    public direct API. AFM routes to it at the framework's discretion; Speech
    and CoreML likewise. We schedule *lanes* and accept that Apple schedules
-   the silicon under them. (Audited 2026-07-10: nothing in this estate has
-   ever programmed the ANE directly — no CoreML artifacts exist anywhere.
+   the silicon under them. (Audited 2026-07-10: nothing here has ever
+   programmed the ANE directly — no CoreML artifacts exist anywhere.[^9]
    The one plausible ANE traversal to date is cardinal's AFM calls. A
    remembered "ANE in the shell" was Metal-via-MLX; the conflation is common
    enough that the contract now names lanes explicitly.)
@@ -181,23 +184,23 @@ references in section 18).
 | Instance shape | Metal | ANE / AFM / Speech | Spawn cost | Fan-out | Verdict |
 |---|---|---|---|---|---|
 | Linux container (`apple/container`, Docker) — every container is a Linux micro-VM | no | no, and never — macOS frameworks do not exist in a Linux guest | sub-second | fine | **rejected** for work; fleet residents only |
-| macOS guest (Virtualization.framework) | paravirtualized, graphics-tuned; compute throughput unproven for these loads | **no ANE**; Apple Intelligence / AFM unavailable in VMs | seconds; APFS clones help | **EULA: two macOS VMs per host** | isolation tier only |
+| macOS guest (Virtualization.framework) | paravirtualized, graphics-tuned; compute throughput unproven for these loads | **no ANE**; Apple Intelligence / AFM unavailable in VMs[^4] | seconds; APFS clones help | **EULA: two macOS VMs per host**[^6] | isolation tier only |
 | **Native macOS process + sandbox** | full, native | full — every door | milliseconds | GPU/ANE-bound only | **the instance shape** |
 
 On the container row: Apple's `container` 1.0 (June 2026) gives each
-container its own micro-VM. There is no GPU passthrough — the maintainers
+container its own micro-VM.[^1] There is no GPU passthrough — the maintainers
 state it plainly, and Apple's GPUs are not behind an IOMMU, so classic
-passthrough may never come. Community projects proxy MLX inference from
-guests to a host daemon over vsock at ~95% of native throughput, which is
+passthrough may never come.[^2] Community projects proxy MLX inference from
+guests to a host daemon over vsock at ~95% of native throughput,[^3] which is
 good engineering and also a concession of the point: the silicon work happens
 host-side anyway.
 
 On the macOS-guest row: Virtualization.framework informs this design even
 though we are not building on it, three ways. First, it shows the platform's
 grain — the paravirtualized GPU device for macOS guests *brokers* Metal to
-shared hardware rather than surrendering the device; brokered access, never
-passthrough, is how Apple shares silicon, and our resident-server pattern
-(section 6) follows the same grain. Second, it is the named **isolation
+shared hardware rather than surrendering the device;[^6] brokered access,
+never passthrough, is how Apple shares silicon, and our resident-server
+pattern (section 6) follows the same grain. Second, it is the named **isolation
 tier**: a job we genuinely do not trust can run in a macOS guest (drivable
 from Go via published bindings), paying the tier's price — no ANE, no AFM,
 at most two concurrent — which is exactly why isolation is the exception and
@@ -758,11 +761,12 @@ workload:
    deadlines with DROP, the cache as deadline insurance, correlation ids
    threading client-A → mesh → client-B. The mesh side of the interpreting
    loop reduces, in haho terms, to two spec templates — transcribe on METAL,
-   interpret on ANE — and a spawner that deposits them per segment. That the
-   hardest ambition in the estate reduces to two JSON documents and a
-   dispatch loop is the design working, not the ambition shrinking.
+   interpret on ANE — and a spawner that deposits them per segment. That our
+   hardest ambition reduces to two JSON documents and a dispatch loop is the
+   design working, not the ambition shrinking.
 
 ## 13. Security posture
+
 
 - Secret **values** MUST NOT appear in a JobSpec, an event, a completion, a
   log line, or this repo. Specs carry env var *names*; the operator provisions
@@ -871,8 +875,8 @@ The full proof, staged as the rungs come alive:
   measurement, and the default `chunk_size` per chunker ships from those
   measurements, not from guesses. wonderlib's existing corpus runs are the
   natural instrument.
-- **Vector RAG.** BM25 (lexical, in surrealdb today) matches how this
-  estate queries: code, error strings, names. Vector search enters when a
+- **Vector RAG.** BM25 (lexical, in surrealdb today) matches how we query:
+  code, error strings, names. Vector search enters when a
   workload demonstrably retrieves by paraphrase rather than by token —
   corpus synthesis across restated sources is the likely first — and it
   costs an embedding model in the loop plus an index story, so it waits for
@@ -886,28 +890,107 @@ The full proof, staged as the rungs come alive:
   deposit ergonomics on top — per-segment spawners as a reusable pattern —
   is speedy's RFC to settle, not this one.
 
-## 18. References (fetched 2026-07-10; restated here so nobody re-litigates them from memory)
+## 18. References
 
-- Apple `container` 1.0 / the Containerization framework; WWDC26 session
-  389, "Discover container machines" — micro-VM-per-container architecture;
-  no GPU or Metal access for guests mentioned.
-- apple/container discussion 62 — maintainers on GPU passthrough: "we do
-  not currently support this"; Apple GPUs are not behind an IOMMU.
-- RobotFlow-Labs/container-toolkit-mlx — host-side Metal daemon over vsock
-  at ~95% of native MLX throughput (early-stage); Docker Model Runner — the
-  same brokering at the API level.
-- WWDC26 session 241, "What's new in the Foundation Models framework" —
-  third-party models behind the Language Model protocol; session 326,
-  "Core AI" — curated open models (Mistral included) AOT-compiled for Apple
-  silicon. Apple Intelligence / AFM are unavailable inside virtual
-  machines.
-- Virtualization.framework — macOS guests with a paravirtualized,
-  graphics-oriented GPU device; the macOS EULA permits two virtualized
-  macOS instances per host.
-- DeepSeek's Anthropic-compatible endpoint, `api.deepseek.com/anthropic` —
-  the existence proof for `ANTHROPIC_COMPATIBLE` as a seam rather than a
-  vendor.
-- In-estate measurements: magpie audio, MLX roughly 70x over torch
-  (2026-06); the ANE-usage audit of `~/mesh/dev` finding no direct ANE
-  programming anywhere, one plausible traversal via cardinal's AFM calls
-  (2026-07-10).
+Fetched 2026-07-10 over the VPN. The hostile network makes live links
+unreliable, which is why every claim's substance is also restated inline
+where it is used.
+
+[^1]: Apple, "Discover container machines," WWDC26 session 389 —
+    <https://developer.apple.com/videos/play/wwdc2026/389/>. Micro-VM-per-
+    container architecture; the session does not mention GPU or Metal
+    access for guests.
+
+[^2]: apple/container, discussion 62, "GPU passthrough availability?" —
+    <https://github.com/apple/container/discussions/62>. Maintainer, June
+    2025: "we do not currently support this." Apple GPUs are not behind an
+    IOMMU; the hypervisor has no passthrough support.
+
+[^3]: RobotFlow-Labs, container-toolkit-mlx —
+    <https://github.com/RobotFlow-Labs/container-toolkit-mlx>. Host-side
+    Swift daemon with native Metal access serving MLX inference over vsock;
+    ~95% of native throughput; early-stage. Docker Model Runner does the
+    same brokering at the API level —
+    <https://www.docker.com/blog/docker-model-runner-vllm-metal-macos/>.
+
+[^4]: Apple, "What's new in the Foundation Models framework," WWDC26
+    session 241 — <https://developer.apple.com/videos/play/wwdc2026/241/>.
+    Third-party and open models behind the Language Model protocol. Apple
+    Intelligence, and therefore AFM, is unavailable inside virtual
+    machines.
+
+[^5]: Apple, "Integrate on-device AI models into your app using Core AI,"
+    WWDC26 session 326 —
+    <https://developer.apple.com/videos/play/wwdc2026/326/>. Curated open
+    models (Mistral included) AOT-compiled for Apple silicon; PyTorch
+    conversion tooling.
+
+[^6]: Apple, Virtualization framework —
+    <https://developer.apple.com/documentation/virtualization>. macOS
+    guests receive a paravirtualized, graphics-oriented GPU device; the
+    macOS software license agreement permits up to two virtualized macOS
+    instances per host machine.
+
+[^7]: DeepSeek's Anthropic-compatible endpoint,
+    `https://api.deepseek.com/anthropic` — the existence proof for
+    `ANTHROPIC_COMPATIBLE` as a seam rather than a vendor.
+
+[^8]: magpie's audio path, measured 2026-06 on the machine whose signature
+    appears in Appendix A, alongside a re-runnable fragment.
+
+[^9]: ANE-usage audit of `~/mesh/dev`, 2026-07-10: no CoreML artifacts
+    anywhere (no `.mlmodel`/`.mlpackage`, no `coremltools`); the one
+    plausible ANE traversal is cardinal's `apple-fm-sdk` calls
+    (`cardinal/backends/fm.py`).
+
+## Appendix A: the 70x, reproducibly
+
+The measurement behind the silicon law (sections 3 and 4): whisper large-v3
+transcribing the same voice memo, MLX versus torch, on this machine,
+2026-06, via magpie's audio path.
+
+Hardware signature — `663bbc4d197add27` (sha256, first 16, over the
+sanitized `system_profiler SPHardwareDataType` + `sw_vers` output; serial
+and machine UUID excluded before hashing):
+
+```text
+Model Identifier: Mac15,8 (MacBook Pro)
+Chip:             Apple M3 Max — 16 CPU cores (12P/4E), 40 GPU cores
+Memory:           48 GB unified
+macOS:            27.0 (build 26A5368g)
+Firmware:         20457.0.13.0.11
+```
+
+The fragment. Both sides transcribe the identical file; model load is
+excluded from both timings, because residency is not work (section 6):
+
+```python
+# bench_whisper.py — the 70x, head to head
+# uv run --with mlx-whisper --with openai-whisper python bench_whisper.py memo.m4a
+import sys, time
+
+audio = sys.argv[1]
+
+import mlx_whisper  # Metal
+mlx_whisper.transcribe(audio,  # first call eats the model load; time the second
+                       path_or_hf_repo="mlx-community/whisper-large-v3-mlx")
+t0 = time.monotonic()
+mlx_whisper.transcribe(audio, path_or_hf_repo="mlx-community/whisper-large-v3-mlx")
+t_mlx = time.monotonic() - t0
+
+import whisper  # openai-whisper, torch backend — CPU on this hardware
+model = whisper.load_model("large-v3")  # load excluded from timing
+t0 = time.monotonic()
+model.transcribe(audio)
+t_torch = time.monotonic() - t0
+
+print(f"mlx    {t_mlx:8.1f}s")
+print(f"torch  {t_torch:8.1f}s   ({t_torch / t_mlx:.0f}x)")
+```
+
+Notes for a re-run. openai-whisper's torch backend runs on CPU here — there
+is no CUDA, and torch's MPS path was not what magpie measured. The torch
+side pulls roughly 3 GB of weights on first run; mind the download rules
+before letting it rip. The original measurement was on walking-around memos
+minutes in length; the exact multiple is clip- and hardware-dependent, and
+the order of magnitude is the law.
