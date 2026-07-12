@@ -2,8 +2,10 @@
 
 - Status: DRAFT. Ratification by the operator and fable marks this file
   read-only, and the read-only file is the reference for the integrity of the
-  project from then on, as is the usual convention. Ratification is currently
-  BLOCKED on one dependency: the speedy RFC (section 17).
+  project from then on, as is the usual convention. haho ratifies as one
+  tranche with the speedy RFC (`docs/speedy-rfc.md`) and the holden RFC
+  (`docs/holden-rfc.md`): the three documents share one vocabulary and one
+  worldview, and none of them ratifies alone.
 - Authors: Max (operator); Claude (Fable 5, drafting). Review happens on the
   PR. This document is shared work — the operator's (eight hours of review on
   one revision alone) and an AI's — and that is stated plainly rather than
@@ -17,10 +19,11 @@
   — the first time the operator recorded that he was authoring together
   with something, and that the primary usefulness of the artifact was its
   machine readability.
-- Companions: holden `docs/ADR-0003-holden-is-a-service.md` (holden is haho's
-  first consumer) and `docs/speedy-rfc.md` (the near-real-time semantics
-  haho enforces) — haho, holden, and speedy are one imbricated document set
-  and ratify as one worldview. Project names used throughout are defined in
+- Companions: `docs/holden-rfc.md` (holden is haho's first consumer; the RFC
+  continues holden's ADR-0003) and `docs/speedy-rfc.md` (the recipe semantics
+  haho implements for chutes — speedy does not require haho, and haho does
+  not define speedy) — haho, holden, and speedy are one imbricated document
+  set and ratify as one worldview. Project names used throughout are defined in
   section 18.
 - Code convention: illustration code in this document is scheme — it reads
   well, and it cannot be mistaken for a commitment. Where the document shows
@@ -93,9 +96,9 @@ dispatch loop. That reduction is the point of the design.
 The first flight is `haho-hello-world` — the smallest complete jump, named
 here because it is graduation stage 0 (section 15). holden is the first
 *consumer*, and it doubles as the integration test for everything after it:
-one job, one API-backed model, no deadline. The consumers after holden
-(section 12) use progressively more of the interface, up to deadline-bound
-work across every lane at once.
+one job, one API-backed model, whole or nothing. The consumers after holden
+(section 12) use progressively more of the interface, up to work across
+every lane at once.
 
 ## 2. The discernment equation
 
@@ -112,10 +115,7 @@ illustration register. For a unit of work `w` and the candidate placements
 ```scheme
 ;; the discernment equation
 (define (feasible w)
-  (filter (lambda (p)
-            (and (capable? p w)
-                 (<= (eta w p) (deadline w))))
-          placements))
+  (filter (lambda (p) (capable? p w)) placements))
 
 (define (cost w p)
   (+ (dollars p) (energy p) (occupancy w p)))
@@ -132,13 +132,17 @@ illustration register. For a unit of work `w` and the candidate placements
 seconds, and the equation must see that. `accuracy` is fitness for purpose,
 not a benchmark score: a transcription that misses proper nouns may still be
 fit for cutting audio into segments and unfit for a permanent record.
+`value` is the requestor's, and it may decay with arrival time — a
+placement too slow to be useful prices itself out through the value term,
+never through enforcement of haho's: the mesh makes no velocity promises
+(speedy RFC, section 9), and haho is mesh.
 
 Choosing a placement by this equation is **discernment**. Discernment is the
 combination of dispatch, orchestration, and scheduling: given a job, decide
 where it runs. In this version of haho, discernment is **external**: the
 requestor works the equation and writes the answer into the job spec (which
-backend, which framing, which deadline). haho enforces the answer — admission
-control, lane budgets, deadlines — but does not second-guess it. Internal
+backend, which framing). haho enforces the answer — admission
+control, lane budgets — but does not second-guess it. Internal
 discernment, where haho itself works the equation from the job's shape, is a
 future capability and is out of scope here.
 
@@ -151,7 +155,8 @@ miniature:
 - "Transcribe this 45-second audio segment." The GPU does it in about a
   second for free; a paid API does it slower for money; torch on CPU takes
   so long the answer arrives after it stopped mattering. Discernment says:
-  metal lane, and the deadline drops the result if it is ever late.
+  metal lane — the placement whose answer arrives while it still matters is
+  the one the value term priced in.
 
 A unit of work moving through haho is called a **chute** — the word lines up
 with "pipeline," and with the parachute the project is named for. One chute,
@@ -267,7 +272,7 @@ Work placement on this machine, by hardware path:
 | Lane | Entered through | Runs | Character |
 |---|---|---|---|
 | metal (GPU) | MLX, via a resident model server | whisper large-v3, mlx-lm models | highest local throughput; contended — budgets in section 10; the 70x side of Appendix A[^8] |
-| ane (Neural Engine) | AFM (Foundation Models)[^4], Speech (`SpeechTranscriber`), Translation, CoreML[^5] | the on-device foundation model[^10]; streaming transcription; on-device machine translation | designed to run concurrently with the GPU; low power; small coherence windows (section 9); concurrency is per-door, measured (Appendices B, C) |
+| ane (Neural Engine) | AFM (Foundation Models)[^4], Speech (`SpeechTranscriber`), Translation, CoreML[^5] | the on-device foundation model[^10]; on-device transcription; on-device machine translation | designed to run concurrently with the GPU; low power; small coherence windows (section 9); concurrency is per-door, measured (Appendices B, C) |
 | api (network) | HTTP to a model endpoint[^7] | claude, deepseek, anything with a served model | capable of what no local model is; costs dollars and round trips |
 | cpu | plain code | chunking, filters, synthesis assembly, voice-activity detection (VAD — deciding where speech starts and stops) | simple code patterns |
 
@@ -291,8 +296,8 @@ Three statements about the lanes, and how much trust each deserves:
    has separate execution units and this is the design intent of the SoC,
    but Apple's frameworks arbitrate access and nothing guarantees the
    absence of internal serialization. Graduation proof 3 (section 15) exists
-   to convert this hypothesis into a measurement before anything
-   deadline-bound depends on it. Note the promise being made is **speedy —
+   to convert this hypothesis into a measurement before the cross-lane
+   pipelines depend on it. Note the promise being made is **speedy —
    near-real-time — never realtime** (speedy is a defined term, section 18).
 3. **Fact.** The Neural Engine has no direct programming interface — there
    is no instruction stream or bytecode a process can hand it. CoreML, AFM,
@@ -370,6 +375,8 @@ from the spec alone (nothing inherited). Illustrative profile:
 (allow file-read*  (subpath (param "HAHO_ROOT"))      ; the versioned bundle
                    (subpath (param "SCRATCH")))
 (allow file-write* (subpath (param "SCRATCH")))
+(allow network-bind                  ; the chute's read-only status endpoint
+  (local tcp "127.0.0.1:*"))         ; (section 7): loopback, ephemeral port
 (allow network-outbound
   (remote tcp (param "HAHOD_ADDR"))  ; the daemon, always
   (remote tcp (param "MLX_ADDR"))    ; present only when the spec names the
@@ -409,7 +416,7 @@ the failure mode that rule exists to prevent.
 **Models are resident. Work is ephemeral.**
 
 whisper large-v3 takes seconds to load and pins gigabytes of unified
-memory; loading it per chunk would spend every deadline on residency. AFM
+memory; loading it per chunk would spend the whole flight on residency. AFM
 is resident because the OS keeps the foundation model warm — a direct
 consequence of the platform choice. Speech and Translation likewise. So the
 resident layer is small and specific:
@@ -538,8 +545,8 @@ execution, no shell. The shape, in scheme (the committed client is Go):
 
 ```scheme
 ;; a requestor, sketched
-(define harness (haho-dial))                 ; loopback; hahod's socket
-(define session (haho-new harness))          ; quiescent until tasked
+(define daemon (haho-dial))                  ; loopback; hahod's socket
+(define session (haho-new daemon))           ; quiescent until tasked
 
 (define events (haho-task session job-spec)) ; admission errors surface
                                              ; here, loudly
@@ -589,7 +596,8 @@ message JobSpec {
   Cache cache = 7;
   haho.filter.v1.FilterPipelineConfig input_filters = 8;
   haho.filter.v1.FilterPipelineConfig output_filters = 9;
-  Deadline deadline = 10;
+  reserved 10; // a Deadline lived here in drafts; the mesh makes no
+               // velocity promises (speedy RFC, section 9)
   map<string, string> secret_env = 11; // logical name -> ENV VAR NAME.
                                        // References, never values (section 14).
                                        // The harness validates each named var
@@ -717,16 +725,6 @@ message Cache {
   }
   uint32 ttl_seconds = 2; // 0 = no expiry
 }
-
-message Deadline {
-  uint32 deadline_ms = 1; // 0 = none
-  OnLate on_late = 2;
-  enum OnLate {
-    ON_LATE_UNSPECIFIED = 0;
-    DROP   = 1; // freshness over completeness: a late answer is no answer
-    FINISH = 2; // batch work: late is fine, record the overrun
-  }
-}
 ```
 
 Events and the landing. Heartbeats reuse the mesh's existing heartbeat
@@ -773,7 +771,8 @@ message JobCompletion {
     OUTCOME_UNSPECIFIED = 0;
     PRODUCED     = 1;
     PARTIAL      = 2; // only ever when the spec set allow_partial
-    DROPPED_LATE = 3;
+    reserved 3;       // DROPPED_LATE lived here in drafts; the mesh never
+                      // drops (speedy RFC, section 9)
     FAILED       = 4; // with a specific reason; never fabricated output
   }
   string reason = 3;
@@ -845,14 +844,14 @@ default:
 }
 ```
 
-lloyd's smoothing of one segment, deadline-bound. lloyd is the
+lloyd's smoothing of one segment. lloyd is the
 text-smoothing frood (the name because "destupidification" is not a
 suitable name for a piece of software, section 18), and inside the
 interpreting pipeline it is the stage between transcription and delivery.
 A 50-to-100-word segment fits the window whole, so there is no mapesis
 here — mapesis over two sentences would be machinery for its own sake;
-resize is the contingency, concat the reassembly, and the deadline does
-the talking:
+resize is the contingency, concat the reassembly, and the tight backoff
+keeps a distressed retry from stalling the segments behind this one:
 
 ```json
 {
@@ -864,21 +863,20 @@ the talking:
               "chunkSize": 3, "maxAttemptsPerChunk": 2,
               "backoff": {"initialMs": 50, "multiplier": 2.0, "maxMs": 400}},
   "synthesis": {"mode": "CONCAT"},
-  "cache": {"kind": "SURREALDB", "ttlSeconds": 900},
-  "deadline": {"deadlineMs": 3000, "onLate": "DROP"}
+  "cache": {"kind": "SURREALDB", "ttlSeconds": 900}
 }
 ```
 
 The pipeline this spec sits inside is mackerel, end to end: an audio
-stream arrives at a client-side buffer that knows where to cut; each cut
+feed arrives at a client-side buffer that knows where to cut; each cut
 segment goes to whisper on the metal lane; that text needs lloyd (the
 spec above); lloyd's output is rendered to audio in the listener's
 preferred language and delivered alongside the smoothed transcript. The
 transcription hop is one more spec, not a special case: `backend {kind:
 MLX, model: "whisper-large-v3", params {task: "translate"}}`, payload
 `raw` audio, framing `WHOLE_OR_ERROR` (the client cut the segment to size
-before sending it), deadline `DROP`. Rendering and delivery belong to the
-client (section 12).
+before sending it). Rendering and delivery — including what a late
+segment means — belong to the terminus renderer (speedy RFC, section 12).
 
 Pluggability is exactly the enum surfaces: backends, chunkers, synthesis
 modes, cache kinds, filters. Each is a Go interface with a registry behind
@@ -931,9 +929,7 @@ implementation is Go inside the chute):
 (define (run-chunks job)
   (synthesize job                               ; none | concat | mapesis
     (map (lambda (chunk)
-           (when (past-deadline? job)           ; the deadline owns the loop
-             (fail 'dropped-late))
-           (or (cache-get (chunk-key chunk))    ; a hit is a free deadline
+           (or (cache-get (chunk-key chunk))    ; a hit is a free chunk
                (let ((out (attempt-with-retry chunk)))  ; re-read on fail;
                  (cache-put (chunk-key chunk) out)      ; backoff on distress
                  (emit (progress chunk))
@@ -975,7 +971,7 @@ The mechanisms, made concrete enough to implement:
 - **The cache key** is `hash(backend kind, model, model_fingerprint, params,
   filtered chunk)` — content-addressed, and its usefulness is concrete: a
   corpus re-run after a crash resumes at the first uncached chunk; a room's
-  repeated announcements are deadlines met for free; the same question
+  repeated announcements are answered for free; the same question
   never bills a model twice, across all chutes and across time. The
   fingerprint keeps a model upgrade from serving yesterday's answers
   (section 17).
@@ -1020,7 +1016,7 @@ The metal budget of 1 is tied directly to the lane table's "contended"
 entry (section 4), and "heavy" has a definition: a job is heavy on a lane
 when its expected utilization of that lane approaches 1.0 — it saturates
 the resource for its duration, so lane throughput is serial in heavy jobs.
-One whisper stream is heavy on metal: `budget = floor(1 / utilization) =
+One whisper job is heavy on metal: `budget = floor(1 / utilization) =
 1`. A future weight-class refinement can admit several *light* metal jobs
 (small mlx-lm models at fractional utilization) under the same rule;
 the budget arithmetic already accommodates it, and nothing changes at the
@@ -1029,23 +1025,21 @@ contract.
 The ane budgets are **per-door**, and both are measurements rather than
 estimates — and they differ. AFM's door serializes strictly (Appendix B):
 concurrent submissions do not degrade it — service time stays constant and
-the excess simply waits — so its queue is safe for FINISH work and exactly
-predictable for DROP work. That predictability is a gift to admission:
-expected wait behind AFM's door is queue-depth times the measured service
-time, which makes the deadline check exact arithmetic instead of a guess —
-but it is an *AFM-door* property, not an ane-lane property. Speech's door
-is genuinely concurrent (Appendix C: three heavy transcriptions at ~20%
-per-job cost, wall at 0.42 of serial), so it takes an ordinary budget
-check, shipped at the measured floor of 3. One welcome consequence: the
-interpreting pipeline's transcribe and smooth stages contend less than the
-single-lane model feared. The api budget is wide because someone else owns
-those GPUs — and deadline-bearing jobs on the api lane are admitted
-optimistically: api latency is weather, not arithmetic, so the deadline
-enforces what admission cannot predict. A
-deadline-bearing job that cannot be admitted before its deadline is DROPPED
-at admission — failing before spending is the freshness rule applied to the
-queue itself, and it requires exactly the single queue view that
-centralizing admission provides.
+the excess simply waits — so a queued job's expected start is queue-depth
+times the measured service time, exact arithmetic instead of a guess. A
+requestor whose value decays with time can read that arithmetic before
+submitting; haho states it and enforces nothing about it, because the
+mesh makes no velocity promises (speedy RFC, section 9). It is an
+*AFM-door* property, not an ane-lane property. Speech's door is genuinely
+concurrent (Appendix C: three heavy transcriptions at ~20% per-job cost,
+wall at 0.42 of serial), so it takes an ordinary budget check, shipped at
+the measured floor of 3. One welcome consequence: the interpreting
+pipeline's transcribe and smooth stages contend less than the single-lane
+model feared. The api budget is wide because someone else owns those
+GPUs, and api latency is weather, not arithmetic. A job that arrives at a
+full queue is REFUSED at admission, loudly, before spending — the same
+posture as everywhere else on this mesh, and it requires exactly the
+single queue view that centralizing admission provides.
 
 That is the entire scheduler: a few dozen lines against a four-row resource
 table, still recognizably the borg grammar — declared resources, admission
@@ -1069,7 +1063,7 @@ boundary as:
 |---|---|---|
 | exists for | a resident service | one job |
 | lifetime | the service | the job |
-| carries | its resident's froody citizenship | a JobSpec and nothing else |
+| carries | its resident's froodiness | a JobSpec and nothing else |
 | runs as | fleet pod | sandboxed native process |
 | created by | deployment, with its service | hahod, at admission |
 
@@ -1084,7 +1078,7 @@ wants is a JobSpec like everyone else's.
 Each consumer requires more of the interface than the one before, and each
 is a real workload:
 
-1. **holden** — one job, api lane, `WHOLE_OR_ERROR`, no deadline, no cache,
+1. **holden** — one job, api lane, `WHOLE_OR_ERROR`, no cache,
    `allow_partial: false` — a ruling is whole or it is not a ruling, so a
    degraded or low-confidence answer is never acceptable here. holden is the
    first service on haho and the integration test for the whole seam:
@@ -1102,7 +1096,7 @@ is a real workload:
    exists to refuse. neal runs the same shape over the operator's voice
    memos.
 4. **mackerel / intruder / speedy** — the interpreting pipeline: three lanes
-   at once, deadlines with DROP, the cache as deadline insurance,
+   at once, the cache as latency insurance,
    correlation ids threading the phone's capture through the mesh and back.
    Its mesh side reduces to two spec templates — transcribe on metal,
    interpret on ane — and a dispatch loop, which is the reduction section 1
@@ -1110,7 +1104,7 @@ is a real workload:
 
 ## 13. Observability
 
-- **The event stream.** Creation, heartbeats (the mesh's standard
+- **The events.** Creation, heartbeats (the mesh's standard
   `ServiceHealthHeartbeat`), progress, chunk misses, cache hits,
   degradations — delivered to the requestor over its harness connection.
 - **The status endpoint.** Pull-based truth mid-descent, per chute,
@@ -1186,8 +1180,8 @@ The staged proof:
 2. **The cache.** Run a real job, then the identical job; the second
    completion shows `cacheHits > 0` and near-zero model time.
 3. **The lanes.** A metal transcription job and an ane interpretation job
-   in flight simultaneously, both meeting deadlines that either alone would
-   meet. This is the measurement that converts section 4's concurrency
+   in flight simultaneously, each landing in the wall time it needs
+   alone. This is the measurement that converts section 4's concurrency
    hypothesis into fact — or fails to, in which case the speedy pipeline's
    design assumptions get revisited *before* anything is built on them.
 4. **The ladder.** A document that misses the window whole is resized,
@@ -1230,14 +1224,6 @@ made one API generation earlier.
 
 ## 17. Open questions
 
-- **The speedy RFC — ratification blocker.** This document leans on speedy
-  (deadline semantics, near-real-time promises, the deposit pattern) while
-  speedy has no RFC of its own. That is not acceptable for ratification:
-  haho cannot be ratified against an undefined dependency. Venue is decided
-  (operator, 2026-07-11): speedy is an idea, not software — its build
-  surface is proto changes, and haho is its primary driver — so its RFC
-  lives in this repo, at `docs/speedy-rfc.md`. Writing it precedes
-  ratification here.
 - **Cache fingerprints per backend.** The key includes a model fingerprint;
   each backend must define one. api models report identifiers; MLX can
   fingerprint weights; AFM offers no version API, so its fingerprint
@@ -1267,8 +1253,8 @@ made one API generation earlier.
   shim shape works. Decided at first implementation of the AFM door, not
   before.
 - **Cancellation.** Jobs are immutable and chutes are not directable, so
-  the only in-flight signal today is process termination by hahod
-  (deadline enforcement). Whether requestors get a graceful cancel — and
+  the only in-flight signal today is process termination by hahod (the
+  sweeper, or operator action). Whether requestors get a graceful cancel — and
   what "graceful" means mid-map — is deferred until a consumer needs it.
 - **Coherence-window benchmarking method.** Section 9 defines N and D and
   `haho bench`; the fitting method and thresholds get designed against
@@ -1315,14 +1301,15 @@ never mistake an aspiration for an artifact.
   it on the bus.
 - **hm** — hall-monitor, the fleet's watcher; holds the leases of section
   13.
-- **speedy** — the near-real-time processing mode and its semantics
-  (deadlines, freshness over completeness, deposit of workloads between
-  pipelines). Companion RFC: `docs/speedy-rfc.md`.
+- **speedy** — the mesh's recipe semantics: bounded, dialed composition of
+  froods — packets, never streaming; near-real-time, never realtime; no
+  velocity promises. haho implements speedy for chutes. Companion RFC:
+  `docs/speedy-rfc.md`.
 
 ### Prior work (built; this document stands on it)
 
 - **holden** — the assessment service (the judgment gate formerly living in
-  the sprints repo). haho's first consumer.
+  the sprints repo). haho's first consumer; RFC: `docs/holden-rfc.md`.
 - **magpie** — transcription pipeline
   ([janearc/magpie](https://github.com/janearc/magpie)): voice memos to
   text, whisper large-v3 on MLX. The 70x measurement is magpie's (Appendix
