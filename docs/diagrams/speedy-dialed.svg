@@ -31,7 +31,7 @@
   <text x="62" y="150" fill="#1a1a1a">dialed: W (hop 10)</text>
   <text x="62" y="168" fill="#1a1a1a">unpack tarball into W</text>
   <text x="62" y="186" fill="#1a1a1a">seal W</text>
-  <text x="62" y="204" fill="#1a1a1a">dial b ─┐   (then exit)</text>
+  <text x="62" y="204" fill="#1a1a1a">release ─┐</text>
 
   <!-- dial a->b leaves BEFORE block bottom -->
   <line x1="228" y1="200" x2="282" y2="200" stroke="#444" stroke-width="1.2" marker-end="url(#arr2)"/>
@@ -42,7 +42,7 @@
   <text x="292" y="210" fill="#1a1a1a">dialed: W (hop 9)</text>
   <text x="292" y="228" fill="#1a1a1a">transcribe → text</text>
   <text x="292" y="246" fill="#1a1a1a">seal W</text>
-  <text x="292" y="264" fill="#1a1a1a">dial c ─┐   (then exit)</text>
+  <text x="292" y="264" fill="#1a1a1a">release ─┐</text>
 
   <line x1="458" y1="260" x2="512" y2="260" stroke="#444" stroke-width="1.2" marker-end="url(#arr2)"/>
   <text x="462" y="252" fill="#666" font-size="11">dial: W awaits (hop 8)</text>
@@ -52,7 +52,7 @@
   <text x="522" y="270" fill="#1a1a1a">dialed: W (hop 8)</text>
   <text x="522" y="288" fill="#1a1a1a">smooth text in W</text>
   <text x="522" y="306" fill="#1a1a1a">seal W</text>
-  <text x="522" y="324" fill="#1a1a1a">dial d ─┐   (then exit)</text>
+  <text x="522" y="324" fill="#1a1a1a">release ─┐</text>
 
   <line x1="688" y1="320" x2="742" y2="320" stroke="#444" stroke-width="1.2" marker-end="url(#arr2)"/>
   <text x="692" y="312" fill="#666" font-size="11">dial: W awaits (hop 7)</text>
@@ -71,7 +71,7 @@
   <text x="62" y="288" fill="#555">dialed: W2 (hop 10)</text>
   <text x="62" y="306" fill="#555">unpack into W2</text>
   <text x="62" y="324" fill="#555">seal W2</text>
-  <text x="62" y="342" fill="#555">dial b ─┐   (then exit)</text>
+  <text x="62" y="342" fill="#555">release ─┐</text>
 
   <line x1="228" y1="338" x2="282" y2="338" stroke="#888" stroke-width="1.2" stroke-dasharray="5 3" marker-end="url(#arr2)"/>
   <text x="232" y="330" fill="#888" font-size="11">dial: W2 (hop 9)</text>
@@ -89,7 +89,7 @@
 
   <!-- legend -->
   <rect x="52" y="560" width="640" height="76" rx="6" fill="#ffffff" stroke="#ccc" stroke-dasharray="4 3"/>
-  <text x="64" y="582" fill="#444">solid: intent 1 (working directory W)   dashed: intent 2 (W2), pipelining</text>
-  <text x="64" y="600" fill="#444">behind it through the same states. every dial leaves its block before the</text>
-  <text x="64" y="618" fill="#444">block ends: the dial is the last act of a living scope. hop counts decrement.</text>
+  <text x="64" y="582" fill="#444">solid: intent 1 (heap W)   dashed: intent 2 (W2), pipelining behind it</text>
+  <text x="64" y="600" fill="#444">through the same states. each block ends in release: the dial fires before</text>
+  <text x="64" y="618" fill="#444">the block ends, then the scope exits. hop counts decrement.</text>
 </svg>
