@@ -2,6 +2,7 @@
 
 > no clients, no servers,
 > no gods, no masters,
+> there is only bus,
 > there is only state,
 > there is only mesh.
 
@@ -21,7 +22,8 @@
 
 The epigraph is the type system. "No gods" reads precisely: there is no
 orchestrator node — composition rides the data, and nothing inside the mesh
-stands above the mesh.
+stands above the mesh. "Only bus" reads the same way: the bus is the one
+shared medium; there are no side channels.
 
 ## 1. The frood law
 
@@ -99,9 +101,12 @@ exist, verbatim, in `bento/v1/composition.proto`:
   its segments to banchans."[^1]
 
 One value is not pinned anywhere: the maximum itinerary. The operator's
-standing number is **10**. It SHOULD be pinned where recipes are minted
-(the minting tool's default and ceiling), not in the proto — the proto's
-job is to carry the bound, the license's job is to set it.
+standing number is **10**. It is pinned **in the gen**: a generated
+constant, produced with the contract code and inherited by the minting
+tool and every citizen — so raising the ceiling is a regeneration, visible
+in a diff and held by the gen-freshness gate, never a config edit or a
+proto field. The proto's job is to carry the bound; the gen's job is to
+set it.
 
 ## 4. Not streaming: the packet model
 
@@ -207,7 +212,10 @@ Three mechanics, precisely:
 Why kafka and not amqp: dialing needs named, durable addressability with
 many listeners, and the log doubles as the itinerary's witness — what was
 dialed, when, by whom, is on the bus record without any additional
-machinery.
+machinery. (The composition surface's larger intent-transport ruling — bus
+versus dataprovider — stays open[^2] and is not implicated here: dialing
+requires the bus by construction, and the dialing signal is the only
+transport this document binds.)
 
 And the latency argument, which is the speed in speedy: in the poll world,
 end-to-end lag has a floor of hops × poll-interval no matter how fast the
@@ -223,6 +231,13 @@ the definition in section 2 doing literal work.
 
 ## 6. The license terms
 
+The license begins at minting, and minting is in scope of this document:
+there is no speedy without the recipe defined. Minting is the operator's
+act — define the ordered capabilities, allocate the working directory,
+stamp the bound from the generated ceiling (section 3), submit the intent.
+Where the minting tool lives is an open question (section 14); that
+minting exists, and that only the operator does it, is not.
+
 Every term bounds the thing the halting problem says cannot be proven.
 These are the conditions under which the frood law's exception is granted,
 and they are MUSTs:
@@ -235,9 +250,12 @@ and they are MUSTs:
 2. **Recipes are linear.** Branching is ruled out by name: once a recipe
    can fan out, there is no way to bound saturation of the one node this
    mesh lives on, or its disk. Parallelism comes from many linear intents
-   in flight (section 9), never from one intent becoming several. The one
-   sanctioned cycle is `Convergence.max_passes`, judged by its acceptance
-   check and bounded like everything else.
+   in flight (section 9), never from one intent becoming several. Fan-out
+   MAY be performed *internally* to a speedy frood — local states are
+   invisible and bounded by their scope — but it is inappropriate for a
+   speedy frood to dial itself to accomplish fan-out. The one sanctioned
+   cycle is `Convergence.max_passes`, judged by its acceptance check and
+   bounded like everything else.
 3. **The itinerary never exceeds the maximum.** A set — the word is
    deliberate; itineraries do not revisit — of state-calls is bounded by
    `hop_bound`, decremented at every derivation, REFUSED loudly at zero.
@@ -278,13 +296,18 @@ as "who is the client": no referent. When the mesh is slower than its
 input, the flow is *behind*, and behind is stated plainly rather than
 dressed as failure.
 
-Behind is also self-healing on this hardware, which is why drops were
-never needed: producers are physically rate-bounded (a room speaks at 1x;
-a camera records at 1x) while the processing states run at 50–77x
-realtime, measured[^4]. A backlog is a transient that the silicon eats.
-Queue growth is bounded by physics at the front (input arrives at
-real-world speed), by `hop_bound` in the middle (no amplification), and by
-bus retention at the back.
+Behind is bounded by the model, not by an assumed microphone. The mesh is
+not fixed to cameras and capture: the operator puts anything into the mesh
+he chooses, and the recipe is minted with a **model** of how that flow
+operates — the model describes the bounds within which things are created,
+whether that is ambient picture generation, near-real-time language
+interpretation, or a tarball of memos. Queue growth is then bounded three
+ways: at the front by the minted model's declared input shape, in the
+middle by `hop_bound` (no amplification), at the back by bus retention.
+Where the input happens to be physical capture, the front bound comes
+free — a room speaks at 1x while the processing states run at 50–77x
+realtime, measured[^4], so a backlog is a transient the silicon eats —
+but capture is an instance of the model, not the premise.
 
 What a *terminus presentation* does with late-arriving pieces — skip,
 elide, annotate — is edge rendering policy, outside the mesh's semantics
@@ -294,76 +317,55 @@ the terminus, invisible to the mesh, which delivered everything.)
 
 ## 9. Faster than realtime
 
-speedy can exceed realtime, which streaming by definition cannot, and the
-mechanism is chunk multiplexing. The operator's worked example: take a
-connection of known bandwidth — 500 kbyte/s, a notorious refugee camp in
-the Netherlands — which appears to be just enough to stream 1080p. A
-stream is stuck at 1:1 with the clock: one second of video per second of
-wire. speedy is not: cut the flow into banchans, run them through the
-itinerary as independent intents multiplexed across the mesh's lanes, and
-the aggregate can move faster than the clock — the same wire carries the
-1080p *and* a second data channel, because chunks admit parallelism and
-sockets do not.
+speedy can exceed realtime; streaming cannot. The mechanism is plain:
+
+- A stream is paced by the clock. A socket carrying 1080p delivers one
+  second of video per second of wire, and never more — if the wire has
+  spare capacity, a stream cannot use it, because the socket is serial
+  and the pacing is the format.
+- speedy cuts the same flow into banchans and moves each through the
+  itinerary as its own intent. Independent intents are not paced by
+  anything: as many ride the wire and the processing states as capacity
+  allows, at once.
+
+So the ceiling moves. A stream's throughput is capped at 1x by
+definition; speedy's is capped by bandwidth and silicon — and the silicon
+runs at 50–77x realtime, measured[^4]. The operator's worked example: a
+500 kbyte/s connection — a notorious refugee camp in the Netherlands — is
+just enough to stream 1080p, exactly 1:1, nothing to spare, and one stall
+starves the socket. The same wire under speedy carries the 1080p as
+banchans *and* a second data channel beside it: the chunks use whatever
+capacity exists whenever it exists, instead of drawing a fixed allowance
+on a fixed schedule.
 
 Parallelism in speedy is always this shape: **many linear intents in
 flight**, each obeying every license term, never one intent becoming
-several. The overlap in the worked example below is the pipelining of
-successive bentos through the same states, plus the dial-before-exit
-overlap at every seam — concurrency as an emergent property of the
-composition law, with no coordinator anywhere.
+several. The overlap in the worked example below is successive bentos
+pipelining through the same states, plus the dial-before-exit overlap at
+each seam.
 
 ## 10. The worked example
 
 The chain: unpack a tarball of voice memos, transcribe, smooth, stitch a
 podcast script and render its audio. First, the classic frood world — four
-froods, each with `{input, output}`, each invoked by the operator, polling:
+froods, each with `{input, output}`, each invoked by the operator, polling.
+Time flows down; columns run concurrently; FSMc demonstrates
+content-discernment — the same frood, re-invoked, branches on what it
+finds:
 
-```text
-FSMa> invoked (via poll)
-FSMa> check for files
-FSMa> is it gzipped; gzip -dc; is it a tarball
-FSMa> write tar output to output directory
-FSMa> format the output directory as bento output    FSMb> invoked (via poll)
-FSMa> exit                                           FSMb> check for files
-                                                     FSMb> do these look like m4a files
-                                                     FSMb> transcribe m4a -> text
-FSMc> invoked (via poll)                             FSMb> complete work in output directory
-FSMc> check for files                                FSMb> exit
-FSMc> looks like text; needs smoothing
-FSMc> smooth; write to output directory              FSMd> invoked (via poll)
-FSMc> exit                                           FSMd> ingest text; generate script
-                                                     FSMd> generate prompt.txt
-FSMc> invoked (via poll)                             FSMd> wrap up output directory
-FSMc> are these smoothed; they're smoothed           FSMd> exit
-FSMc> stitch podcast script; render audio
-FSMc> wrap up output: script, prompt, audio
-FSMc> exit
-```
-
-(Diagram shape from the design conversation: time flows down, columns run
-concurrently, and FSMc demonstrates content-discernment — the same frood,
-re-invoked, branches on what it finds.)
+![The classic frood world: four polling froods, every seam waiting on the
+operator, FSMc invoked twice](diagrams/speedy-poll.svg)
 
 The operator stands at every seam of that picture: each frood's output
 waits, inert, until someone external says go. Now the same chain as
-`recipe_X`, minted once, dialed thereafter:
+`recipe_X`, minted once, dialed thereafter — solid blocks are the first
+intent's working directory W, dashed blocks are a second intent (W2)
+pipelining behind it through the same states, and every dial leaves its
+block before the block ends, because the dial is the last act of a living
+scope:
 
-```text
-operator> mint recipe_X {start: memos.tgz, end: podcast/}; allocate W; hop_bound 10
-speedy_a> dialed: W awaits
-speedy_a> unpack tarball into W; seal W
-speedy_a> dial speedy_b ------------->  speedy_b> dialed: W awaits
-speedy_a> exit                          speedy_b> transcribe m4a -> text in W; seal W
-operator> (second intent: W2)           speedy_b> dial speedy_c ------------->  speedy_c> dialed: W awaits
-speedy_a> dialed: W2 awaits             speedy_b> exit                          speedy_c> smooth text in W; seal W
-speedy_a> unpack into W2; seal W2                                               speedy_c> dial speedy_d --> ...
-speedy_a> dial speedy_b ------------->  speedy_b> dialed: W2 awaits             speedy_c> exit
-speedy_a> exit                          ...
-                                                        speedy_d> stitch script; render audio; seal W
-                                                        speedy_d> terminus: publish W as end data
-                                                        speedy_d> exit
-recipe_X is complete : {W} -> {end data: podcast/}
-```
+![The dialed world: recipe_X minted once, W traveling by reference, hop
+counts decrementing, W2 pipelining behind](diagrams/speedy-dialed.svg)
 
 One mint instead of four invocations per bento; the working directory W
 travels by reference; every dial is the last act of a living scope; the
@@ -373,12 +375,15 @@ may do: mint the recipe and receive the end data.
 
 ## 11. Scope
 
-The correlated flow — one working directory's journey from start data to
-end data — is a **scope**. This is deliberately the same word hahod
-stores: hahod's scope is the host-local view of the same lineage, and the
-fallow-reaping invariant (no heartbeats without tasking, no lease without
-heartbeats) applies to speedy scopes exactly as it applies to chutes. One
-word, one concept, two altitudes.
+A scope is everything done under one intent: one working directory's
+journey from start data to end data, mint to publish. The word is
+deliberately the same one hahod uses — hahod keeps a scope row for every
+piece of work it supervises on the host, and a speedy scope is that same
+work seen mesh-wide. One word, one concept, two altitudes.
+
+The reaping rule reads the same at both: no heartbeats without tasking, no
+lease without heartbeats. A scope that is not working is not alive, and hm
+reaps what is not alive.
 
 ## 12. haho
 
@@ -396,11 +401,12 @@ them, and nothing here depends on it.
   persistent socket (section 4).
 - **Not client/server.** Origin, terminus, and at most MAX_HOPS states
   between.
-- **Not an orchestrator.** There is no coordinator node; the coordination
-  IS the itinerary, riding the data. (mackerel's held question — whether a
-  converging coordinator is a misuse of the mesh — is answered: there is
-  no coordinator to misuse; convergence is `max_passes`, authored at
-  minting.)
+- **Not orchestrated — self-orchestrating.** speedy is by definition
+  self-orchestrating: the coordination is the itinerary, riding the data,
+  executed one dial at a time. There is no orchestrator node to build,
+  deploy, or misuse. (mackerel's held question — whether a converging
+  coordinator is a misuse of the mesh — dissolves: there is no
+  coordinator; convergence is `max_passes`, authored at minting.)
 - **Not branching.** Ruled out by name, per the license terms.
 - **Not a delivery-guarantee change.** The bus stays what it is; intents
   stay idempotent by `intent_id`.
@@ -416,18 +422,13 @@ them, and nothing here depends on it.
   whether dialing rides an allowlist minted with the recipe, is open. The
   license leans on gen-layer bans and hm's backstop; a stronger story can
   wait for evidence it is needed.
-- **Recipe-minting ergonomics.** Where the operator's minting tool lives
-  (a CLI, a holden verb, a library) and how `recipe_id` resolves — the
-  proto deliberately defines no registry[^2].
+- **The minting tool.** Minting itself is in scope and required (section
+  6); what remains open is where the tool lives — a CLI, a holden verb, a
+  library — and how `recipe_id` resolves, since the proto deliberately
+  defines no registry[^2].
 - **The branching trigger.** No workload on the roadmap needs a branching
   recipe; if one appears, it reopens the ruling with its own safety
   argument. Until then, linear.
-- **Where the ceiling is pinned.** hop_bound's value (10) needs a home in
-  the minting tool's config; it is deliberately not a proto constant.
-- **Intent transport.** Bus vs dataprovider remains an OPEN ruling on the
-  composition surface[^2]; nothing in this document presumes one, and the
-  dial-over-kafka description above binds only the dialing signal, not
-  intent submission.
 
 ## References
 

@@ -1,0 +1,82 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 940 660" font-family="Menlo, SF Mono, monospace" font-size="12">
+  <defs>
+    <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#444"/>
+    </marker>
+  </defs>
+  <rect x="0" y="0" width="940" height="660" fill="#ffffff"/>
+
+  <!-- time axis -->
+  <line x1="34" y1="70" x2="34" y2="620" stroke="#bbb" stroke-width="1" marker-end="url(#arr)"/>
+  <text x="26" y="60" fill="#888">time</text>
+
+  <!-- lane headers -->
+  <text x="150" y="40" text-anchor="middle" font-weight="bold" fill="#1a1a1a">FSMa (unpack)</text>
+  <text x="380" y="40" text-anchor="middle" font-weight="bold" fill="#1a1a1a">FSMb (transcribe)</text>
+  <text x="610" y="40" text-anchor="middle" font-weight="bold" fill="#1a1a1a">FSMc (smooth/stitch)</text>
+  <text x="840" y="40" text-anchor="middle" font-weight="bold" fill="#1a1a1a">FSMd (script)</text>
+  <line x1="60" y1="50" x2="920" y2="50" stroke="#ddd" stroke-width="1"/>
+
+  <!-- FSMa block -->
+  <rect x="60" y="70" width="180" height="118" rx="6" fill="#f4f4f1" stroke="#999"/>
+  <text x="70" y="88" fill="#1a1a1a">invoked (poll)</text>
+  <text x="70" y="106" fill="#1a1a1a">check for files</text>
+  <text x="70" y="124" fill="#1a1a1a">gunzip; is tarball?</text>
+  <text x="70" y="142" fill="#1a1a1a">write tar output</text>
+  <text x="70" y="160" fill="#1a1a1a">format bento output</text>
+  <text x="70" y="178" fill="#1a1a1a">exit</text>
+
+  <!-- bento a->b -->
+  <line x1="240" y1="160" x2="290" y2="160" stroke="#444" stroke-width="1.2" marker-end="url(#arr)"/>
+  <text x="245" y="152" fill="#666" font-size="11">bento (inert)</text>
+
+  <!-- FSMb block: starts as a formats output (overlap) -->
+  <rect x="290" y="152" width="180" height="100" rx="6" fill="#f4f4f1" stroke="#999"/>
+  <text x="300" y="170" fill="#1a1a1a">invoked (poll)</text>
+  <text x="300" y="188" fill="#1a1a1a">look like m4a?</text>
+  <text x="300" y="206" fill="#1a1a1a">transcribe → text</text>
+  <text x="300" y="224" fill="#1a1a1a">complete output</text>
+  <text x="300" y="242" fill="#1a1a1a">exit</text>
+
+  <!-- bento b->c -->
+  <line x1="470" y1="230" x2="520" y2="230" stroke="#444" stroke-width="1.2" marker-end="url(#arr)"/>
+  <text x="475" y="222" fill="#666" font-size="11">bento (inert)</text>
+
+  <!-- FSMc first pass -->
+  <rect x="520" y="222" width="180" height="100" rx="6" fill="#f4f4f1" stroke="#999"/>
+  <text x="530" y="240" fill="#1a1a1a">invoked (poll)</text>
+  <text x="530" y="258" fill="#1a1a1a">text needs smoothing</text>
+  <text x="530" y="276" fill="#1a1a1a">smooth</text>
+  <text x="530" y="294" fill="#1a1a1a">write output</text>
+  <text x="530" y="312" fill="#1a1a1a">exit</text>
+
+  <!-- bento c->d -->
+  <line x1="700" y1="300" x2="750" y2="300" stroke="#444" stroke-width="1.2" marker-end="url(#arr)"/>
+  <text x="705" y="292" fill="#666" font-size="11">bento (inert)</text>
+
+  <!-- FSMd block -->
+  <rect x="750" y="292" width="180" height="100" rx="6" fill="#f4f4f1" stroke="#999"/>
+  <text x="760" y="310" fill="#1a1a1a">invoked (poll)</text>
+  <text x="760" y="328" fill="#1a1a1a">ingest text</text>
+  <text x="760" y="346" fill="#1a1a1a">script + prompt.txt</text>
+  <text x="760" y="364" fill="#1a1a1a">wrap output</text>
+  <text x="760" y="382" fill="#1a1a1a">exit</text>
+
+  <!-- bento d->c (second pass), drawn leftward -->
+  <path d="M 750 380 C 720 400 720 420 700 432" fill="none" stroke="#444" stroke-width="1.2" marker-end="url(#arr)"/>
+  <text x="640" y="412" fill="#666" font-size="11">bento (inert)</text>
+
+  <!-- FSMc second pass: content discernment -->
+  <rect x="520" y="430" width="180" height="118" rx="6" fill="#f4f4f1" stroke="#999"/>
+  <text x="530" y="448" fill="#1a1a1a">invoked (poll)</text>
+  <text x="530" y="466" fill="#1a1a1a">are these smoothed?</text>
+  <text x="530" y="484" fill="#1a1a1a">they're smoothed →</text>
+  <text x="530" y="502" fill="#1a1a1a">stitch podcast script</text>
+  <text x="530" y="520" fill="#1a1a1a">render audio</text>
+  <text x="530" y="538" fill="#1a1a1a">wrap output; exit</text>
+
+  <!-- operator note -->
+  <rect x="60" y="560" width="640" height="58" rx="6" fill="#ffffff" stroke="#ccc" stroke-dasharray="4 3"/>
+  <text x="72" y="582" fill="#444">every seam waits for the operator: each bento sits inert until someone</text>
+  <text x="72" y="600" fill="#444">external says go. FSMc runs twice — same frood, branch chosen by looking.</text>
+</svg>
