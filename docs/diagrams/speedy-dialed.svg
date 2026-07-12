@@ -1,0 +1,95 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 940 680" font-family="Menlo, SF Mono, monospace" font-size="12">
+  <defs>
+    <marker id="arr2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#444"/>
+    </marker>
+  </defs>
+  <rect x="0" y="0" width="940" height="680" fill="#ffffff"/>
+
+  <!-- time axis -->
+  <line x1="30" y1="120" x2="30" y2="640" stroke="#bbb" stroke-width="1" marker-end="url(#arr2)"/>
+  <text x="22" y="110" fill="#888">time</text>
+
+  <!-- mint box -->
+  <rect x="52" y="16" width="330" height="72" rx="6" fill="#eef1ee" stroke="#666"/>
+  <text x="64" y="36" font-weight="bold" fill="#1a1a1a">operator mints recipe_X</text>
+  <text x="64" y="54" fill="#1a1a1a">start: memos.tgz → end: podcast/</text>
+  <text x="64" y="72" fill="#1a1a1a">allocate W; hop_bound = 10; submit intent</text>
+
+  <!-- lane headers -->
+  <text x="140" y="112" text-anchor="middle" font-weight="bold" fill="#1a1a1a">speedy_a</text>
+  <text x="370" y="112" text-anchor="middle" font-weight="bold" fill="#1a1a1a">speedy_b</text>
+  <text x="600" y="112" text-anchor="middle" font-weight="bold" fill="#1a1a1a">speedy_c</text>
+  <text x="830" y="112" text-anchor="middle" font-weight="bold" fill="#1a1a1a">speedy_d</text>
+  <line x1="50" y1="122" x2="920" y2="122" stroke="#ddd" stroke-width="1"/>
+
+  <!-- mint dial to a -->
+  <path d="M 140 88 L 140 132" fill="none" stroke="#444" stroke-width="1.2" marker-end="url(#arr2)"/>
+
+  <!-- W chain (solid): a -->
+  <rect x="52" y="132" width="176" height="94" rx="6" fill="#f4f4f1" stroke="#999"/>
+  <text x="62" y="150" fill="#1a1a1a">dialed: W (hop 10)</text>
+  <text x="62" y="168" fill="#1a1a1a">unpack tarball into W</text>
+  <text x="62" y="186" fill="#1a1a1a">seal W</text>
+  <text x="62" y="204" fill="#1a1a1a">release ─┐</text>
+
+  <!-- dial a->b leaves BEFORE block bottom -->
+  <line x1="228" y1="200" x2="282" y2="200" stroke="#444" stroke-width="1.2" marker-end="url(#arr2)"/>
+  <text x="232" y="192" fill="#666" font-size="11">dial: W awaits (hop 9)</text>
+
+  <!-- b -->
+  <rect x="282" y="192" width="176" height="94" rx="6" fill="#f4f4f1" stroke="#999"/>
+  <text x="292" y="210" fill="#1a1a1a">dialed: W (hop 9)</text>
+  <text x="292" y="228" fill="#1a1a1a">transcribe → text</text>
+  <text x="292" y="246" fill="#1a1a1a">seal W</text>
+  <text x="292" y="264" fill="#1a1a1a">release ─┐</text>
+
+  <line x1="458" y1="260" x2="512" y2="260" stroke="#444" stroke-width="1.2" marker-end="url(#arr2)"/>
+  <text x="462" y="252" fill="#666" font-size="11">dial: W awaits (hop 8)</text>
+
+  <!-- c -->
+  <rect x="512" y="252" width="176" height="94" rx="6" fill="#f4f4f1" stroke="#999"/>
+  <text x="522" y="270" fill="#1a1a1a">dialed: W (hop 8)</text>
+  <text x="522" y="288" fill="#1a1a1a">smooth text in W</text>
+  <text x="522" y="306" fill="#1a1a1a">seal W</text>
+  <text x="522" y="324" fill="#1a1a1a">release ─┐</text>
+
+  <line x1="688" y1="320" x2="742" y2="320" stroke="#444" stroke-width="1.2" marker-end="url(#arr2)"/>
+  <text x="692" y="312" fill="#666" font-size="11">dial: W awaits (hop 7)</text>
+
+  <!-- d: terminus -->
+  <rect x="742" y="312" width="180" height="112" rx="6" fill="#f4f4f1" stroke="#999"/>
+  <text x="752" y="330" fill="#1a1a1a">dialed: W (hop 7)</text>
+  <text x="752" y="348" fill="#1a1a1a">stitch script</text>
+  <text x="752" y="366" fill="#1a1a1a">render audio; seal W</text>
+  <text x="752" y="384" fill="#1a1a1a">terminus:</text>
+  <text x="752" y="402" fill="#1a1a1a">publish W → end data</text>
+  <text x="752" y="420" fill="#1a1a1a">exit</text>
+
+  <!-- W2 pipeline (dashed, second intent) -->
+  <rect x="52" y="270" width="176" height="94" rx="6" fill="#ffffff" stroke="#999" stroke-dasharray="5 3"/>
+  <text x="62" y="288" fill="#555">dialed: W2 (hop 10)</text>
+  <text x="62" y="306" fill="#555">unpack into W2</text>
+  <text x="62" y="324" fill="#555">seal W2</text>
+  <text x="62" y="342" fill="#555">release ─┐</text>
+
+  <line x1="228" y1="338" x2="282" y2="338" stroke="#888" stroke-width="1.2" stroke-dasharray="5 3" marker-end="url(#arr2)"/>
+  <text x="232" y="330" fill="#888" font-size="11">dial: W2 (hop 9)</text>
+
+  <rect x="282" y="330" width="176" height="76" rx="6" fill="#ffffff" stroke="#999" stroke-dasharray="5 3"/>
+  <text x="292" y="348" fill="#555">dialed: W2 (hop 9)</text>
+  <text x="292" y="366" fill="#555">transcribe → text</text>
+  <text x="292" y="384" fill="#555">…</text>
+
+  <!-- completion -->
+  <rect x="560" y="470" width="362" height="50" rx="6" fill="#eef1ee" stroke="#666"/>
+  <text x="572" y="490" font-weight="bold" fill="#1a1a1a">recipe_X is complete</text>
+  <text x="572" y="508" fill="#1a1a1a">{W} → {end data: podcast/}</text>
+  <path d="M 832 424 L 832 470" fill="none" stroke="#444" stroke-width="1.2" marker-end="url(#arr2)"/>
+
+  <!-- legend -->
+  <rect x="52" y="560" width="640" height="76" rx="6" fill="#ffffff" stroke="#ccc" stroke-dasharray="4 3"/>
+  <text x="64" y="582" fill="#444">solid: intent 1 (heap W)   dashed: intent 2 (W2), pipelining behind it</text>
+  <text x="64" y="600" fill="#444">through the same states. each block ends in release: the dial fires before</text>
+  <text x="64" y="618" fill="#444">the block ends, then the scope exits. hop counts decrement.</text>
+</svg>
