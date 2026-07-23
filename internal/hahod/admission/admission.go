@@ -148,6 +148,11 @@ func (t *Ticket) Release() {
 	t.state = ticketDone
 }
 
+// laneGate's queue is a counter, not an ordered line: a freed slot goes
+// to whichever send wins — a blocked queued Wait or a fresh Admit — so
+// under sustained saturation the queue is UNORDERED and makes no fairness
+// promise. Section 10 promises bounds, not ordering; if fairness is ever
+// promised, this becomes an explicit FIFO.
 type laneGate struct {
 	slots    chan struct{}
 	queued   atomic.Int32

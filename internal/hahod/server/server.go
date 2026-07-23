@@ -58,10 +58,35 @@ func New(ctx context.Context, st *store.Store, adm *admission.Admission, log *sl
 	}
 }
 
-// Drain joins every in-flight execute goroutine. Call after the HTTP
-// listener stops and before the store closes: with the base context
-// cancelled, runs land FAILED quickly and nothing exits half-recorded.
-func (s *Server) Drain() { s.wg.Wait() }
+// Drain joins every in-flight execute goroutine, bounded by ctx. Call
+// after http.Server.Shutdown has RETURNED (not merely begun) and before
+// the store closes: Shutdown returning is what guarantees every handler
+// reached its wg.Add, so no execute goroutine can be born after the wait
+// starts. With the base context cancelled, runs land FAILED quickly and
+// nothing exits half-recorded; a ctx expiry here means a run ignored its
+// context — the caller logs it loudly and abandons.
+func (s *Server) Drain(ctx context.Context) error {
+	done := make(chan struct{})
+	go func() { s.wg.Wait(); close(done) }()
+	select {
+	case <-done:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// InFlight reports the running-job gauge; the drain-timeout log names it.
+func (s *Server) InFlight() int64 { return s.metrics.jobsInFlight.Load() }
+
+// RecoverOrphans is the method form of the startup sweep: it lands the
+// orphans and counts them on this process's metrics, so a scraper can
+// reconcile recovered rows against the landed counters.
+func (s *Server) RecoverOrphans() (int, error) {
+	n, err := RecoverOrphans(s.store, s.log)
+	s.metrics.orphansRecovered.Add(int64(n))
+	return n, err
+}
 
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
@@ -166,7 +191,12 @@ func (s *Server) handleTask(w http.ResponseWriter, r *http.Request) {
 	// tasks both passing the state check above, exactly one claims it here;
 	// the loser is the client's conflict (409), never a server fault, and
 	// its ticket settles cleanly (queue position surrendered, no slot
-	// touched).
+	// touched). Known, accepted edge: between the loser's Admit and its
+	// Release the lane briefly counts a phantom reservation, so a third
+	// job arriving at exactly the queue boundary can draw a spurious
+	// queue_full — a client double-tasking narrows the queue for the
+	// duration of one bolt write, and that is the client's fault priced
+	// at one transient 429, not machinery here.
 	queued := ticket.Queued()
 	first := store.StateRunning
 	if queued {

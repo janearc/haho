@@ -529,7 +529,7 @@ double duty, and the double duty is the design:
 - **On the host**, hahod keeps a row it also calls a scope for every
   piece of work it supervises; that row is the host-local record of the
   same thing. When a recipe step's work runs as a haho chute (section
-  15), the chute's scope row and the mesh scope it serves are two views
+  14), the chute's scope row and the mesh scope it serves are two views
   of one fact.
 
 What a scope is *not* is a frood's insides. A frood's internal states are
@@ -644,8 +644,10 @@ semantics; it does not define them, and nothing here depends on it.
     the declared-runnable check shape `Convergence.acceptance` reuses.
 
 [^4]: haho `docs/haho-rfc.md`, Appendices A–C: whisper on MLX at 63–77x
-    realtime; SpeechTranscriber at 49–77x, concurrent; measured on the
-    hardware whose signature the appendices carry.
+    realtime; SpeechTranscriber at 49–77x realtime serial, and genuinely
+    concurrent at ~20% per-job cost (wall/sum 0.42 on three heavy
+    transcriptions); measured on the hardware whose signature the
+    appendices carry.
 
 [^5]: The shape is old: perl's POE gives each state a kernel, a shared
     heap, and states that end by asking the kernel to call the next state

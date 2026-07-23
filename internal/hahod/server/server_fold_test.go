@@ -320,7 +320,7 @@ func TestDrainLandsEverythingOnShutdown(t *testing.T) {
 
 	cancel() // the daemon is shutting down
 	done := make(chan struct{})
-	go func() { srv.Drain(); close(done) }()
+	go func() { srv.Drain(context.Background()); close(done) }()
 	select {
 	case <-done:
 	case <-time.After(15 * time.Second):

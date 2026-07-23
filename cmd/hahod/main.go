@@ -101,20 +101,21 @@ func main() {
 	}
 	defer st.Close()
 
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
+	srv := server.New(ctx, st, admission.New(admission.Defaults()), log, "http://"+cfg.addr)
+
 	// Any queued/running row at startup is a crash's leftover: land it
 	// FAILED, loudly, before serving — a dead flight must never report
-	// alive.
-	if n, err := server.RecoverOrphans(st, log); err != nil {
+	// alive. The count rides this process's metrics so a scraper can
+	// reconcile recovered rows against the landed counters.
+	if n, err := srv.RecoverOrphans(); err != nil {
 		log.Error("startup refused", "error", fmt.Sprintf("orphan recovery: %v", err))
 		os.Exit(1)
 	} else if n > 0 {
 		log.Warn("recovered orphaned sessions", "count", n)
 	}
-
-	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-	defer stop()
-
-	srv := server.New(ctx, st, admission.New(admission.Defaults()), log, "http://"+cfg.addr)
 	httpSrv := &http.Server{
 		Addr:              cfg.addr,
 		Handler:           srv.Handler(),
@@ -124,7 +125,9 @@ func main() {
 		IdleTimeout:       120 * time.Second,
 	}
 
+	shutdownDone := make(chan struct{})
 	go func() {
+		defer close(shutdownDone)
 		<-ctx.Done()
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
@@ -139,10 +142,23 @@ func main() {
 		log.Error("serve", "error", err.Error())
 		os.Exit(1)
 	}
+	// ListenAndServe returning ErrServerClosed means Shutdown has BEGUN;
+	// draining may only start once Shutdown has RETURNED, because a
+	// handler still in its pre-wg.Add work would otherwise be invisible
+	// to the drain and its admitted job would miss its landing (found by
+	// the round-2 review with a model-program repro). Shutdown returns
+	// only after every handler has, so waiting here closes the window.
+	<-shutdownDone
 	// Drain-and-land: the signal context is dead, so every in-flight run
 	// fails fast and lands FAILED with the cancellation as its reason;
 	// queued jobs land FAILED without running. Only then does the store
-	// close — nothing exits half-recorded.
-	srv.Drain()
+	// close — nothing exits half-recorded. The bound is a backstop for a
+	// future backend that ignores its context; today's backend honors it.
+	drainCtx, cancelDrain := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancelDrain()
+	if err := srv.Drain(drainCtx); err != nil {
+		log.Error("drain timed out; abandoning in-flight runs",
+			"error", err.Error(), "in_flight", srv.InFlight())
+	}
 	log.Info("hahod stopped")
 }

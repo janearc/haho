@@ -20,6 +20,7 @@ type metrics struct {
 	landedPartial        atomic.Int64
 	landedFailed         atomic.Int64
 	landingWriteFailures atomic.Int64
+	orphansRecovered     atomic.Int64
 }
 
 func (m *metrics) landed(outcome jobpb.JobCompletion_Outcome) {
@@ -49,4 +50,6 @@ func (m *metrics) handler(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, "hahod_jobs_landed_total{outcome=\"FAILED\"} %d\n", m.landedFailed.Load())
 	fmt.Fprintf(w, "# TYPE hahod_landing_write_failures_total counter\n")
 	fmt.Fprintf(w, "hahod_landing_write_failures_total %d\n", m.landingWriteFailures.Load())
+	fmt.Fprintf(w, "# TYPE hahod_orphans_recovered_total counter\n")
+	fmt.Fprintf(w, "hahod_orphans_recovered_total %d\n", m.orphansRecovered.Load())
 }

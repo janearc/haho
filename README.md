@@ -45,6 +45,12 @@ Divergences from the RFC, surfaced (each is queued work, none is silent):
 - Completions land in hahod's store only; bus publication — the RFC's
   copy of record — is not built.
 - No JobEvent surface exists; requestors poll `/sessions/{id}`.
+- No session idle TTL: a created-but-never-tasked session is never
+  reaped, and the store is never pruned — the sweeper is future work.
+- No hm leases or heartbeats: the RFC's lease chain (taken at admission,
+  renewed through the descent, released at landing) is unbuilt, and the
+  vendored heartbeat message is carried by the contract but not yet
+  emitted.
 - The task response's status address is hahod's session URL, not a
   per-chute status port, and the chute's mid-descent status shape does
   not exist.
