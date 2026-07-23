@@ -17,7 +17,7 @@
 - Companions: `bento/v1/composition.proto` and `bento/v1/bento.proto` in
   big-little-mesh — the protocol this document binds semantics onto, which
   reserved a slot for it from the beginning[^1]; `docs/haho-rfc.md` (haho
-  implements speedy for chutes; section 15); `docs/holden-rfc.md` (holden
+  implements speedy for chutes; section 14 below); `docs/holden-rfc.md` (holden
   is not speedy work, and its RFC says why); mackerel `DESIGN.md` (a case
   study, not a driver).
 
@@ -598,7 +598,7 @@ semantics; it does not define them, and nothing here depends on it.
   stay idempotent by `intent_id`.
 - **Not a velocity promise.** No deadline exists in these semantics; how
   fast the product needed to arrive is the client's concern at the edge
-  (sections 9 and 12).
+  (sections 8 and 11).
 - **Not intruder.** intruder is a separate project — client-side, a
   resident in-browser wrapper over the terminus of a mesh flow, with a
   batcher/chunker underneath depositing bento-shaped work. It may serve

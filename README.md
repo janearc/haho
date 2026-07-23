@@ -26,24 +26,51 @@ the usual convention.
 
 ## State of the code
 
-What compiles here today is the pre-RFC proof of concept: an LLM proxy
-with a control port, a filter pipeline, model providers, and a
-SurrealDB-backed cache and RAG store. It predates the RFC and disagrees
-with it on purpose-defining points — it calls itself a harness (the RFC
-reserves that word for the per-job scope hahod creates), it containerizes
-(chutes are sandboxed native processes; the RFC's placement study is
-exactly why), and it proxies models rather than executing jobs. It earned
-several of the lessons the RFC is built on, and the RFC's contract recast
-— `haho.job.v1` (JobSpec / JobEvent / JobCompletion), hahod, chutes —
-replaces it as the first post-ratification work.
+Two systems compile here today, deliberately separate:
 
-The PoC's operational surface (config, endpoints, env) is deliberately
-not documented here; it lives in this file's git history, so this README
-never describes two systems at once.
+**The tranche implementation**, landed ahead of ratification (the RFC set
+is still DRAFT). The `haho.job.v1` contract is transcribed verbatim from
+the RFC's section 8 sketch, generated code is committed (gen-freshness
+holds and is checkable: regenerate == committed), and `bin/hahod` serves
+the RFC's console walkthrough on loopback — sessions, the section 10
+admission table, structured JSON logging, `/health` and `/metrics`. The
+served surface is exactly: api lane, `ANTHROPIC_COMPATIBLE`,
+`WHOLE_OR_ERROR`, synthesis `NONE`, cache `NONE`, no filters. Everything
+else the contract can express is REFUSED at admission, loudly, by name.
+
+Divergences from the RFC, surfaced (each is queued work, none is silent):
+
+- Chutes run in-process inside hahod; the harness process split and the
+  SBPL sandbox are not built.
+- Completions land in hahod's store only; bus publication — the RFC's
+  copy of record — is not built.
+- No JobEvent surface exists; requestors poll `/sessions/{id}`.
+- The task response's status address is hahod's session URL, not a
+  per-chute status port, and the chute's mid-descent status shape does
+  not exist.
+- The session envelope JSON (`new`/`task`/`status` bodies) matches the
+  RFC's console examples but is hand-shaped, not contract messages.
+- Trust model v1: loopback is the trust boundary. Any same-uid process
+  can submit a spec naming any `base_url` and env-var reference — the
+  RFC's worked specs require that freedom — so requestor authentication
+  and a `base_url` allowlist are open operator questions, deliberately
+  not pre-decided in code.
+
+**The pre-RFC proof of concept** (`cmd/haho`, the older `internal/`
+packages): an LLM proxy with a control port, a filter pipeline, model
+providers, and a SurrealDB-backed cache and RAG store. It predates the
+RFC and disagrees with it on purpose-defining points — it calls itself a
+harness (the RFC reserves that word for the per-job scope hahod creates),
+it containerizes (chutes are sandboxed native processes), and it proxies
+models rather than executing jobs. It earned several of the lessons the
+RFC is built on; its retirement is its own diff. Its operational surface
+is deliberately not documented here — it lives in this file's git
+history, so this README never describes two systems' knobs at once.
 
 - Contracts: `proto/` (buf v2); consumers vendor-generate, gen-freshness
   holds.
 - Build and test: `make build`, `make test`.
-- The RFC's measurements are re-runnable: `haho bench` ships with haho
-  (RFC section 15), so the numbers the design leans on can be re-grounded
-  on new hardware and new OS builds instead of fossilizing.
+- The RFC's measurements will be re-runnable: `haho bench` is designed to
+  ship with haho (RFC section 15) so the numbers the design leans on can
+  be re-grounded on new hardware and OS builds instead of fossilizing.
+  Today the appendices' inline probes are what is re-runnable.
