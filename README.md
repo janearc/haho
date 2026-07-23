@@ -101,16 +101,23 @@ boot: the recovery sweep lands any orphaned row FAILED, loudly, before
 serving — and launchd's KeepAlive restarts a crashed daemon, which that
 sweep makes safe.
 
-The hello world dials the machine's own model — local ollama over the
+The hello world is the RFC's own walkthrough: the `haho` CLI (a thin
+wrapper over the `client` package — any Go requestor links the package
+instead) dialing the machine's own model, local ollama over the
 `/api/chat`-shaped door, no credential anywhere, because the paid api
 lane is the last resort and not the default:
 
 ```
-SID=$(curl -sX POST 127.0.0.1:8790/sessions | jq -r .id)
-curl -sX POST 127.0.0.1:8790/sessions/$SID/task -d @deploy/hello-world.json
-curl -s 127.0.0.1:8790/sessions/$SID              # poll: in_flight, disposition
-curl -s 127.0.0.1:8790/sessions/$SID/completion   # the landed JobCompletion
+SID=$(haho new | jq -r .id)
+haho task $SID deploy/hello-world.yml   # or .json; YAML is the authored form
+haho status $SID                        # in_flight, disposition
+haho wait $SID                          # poll to landing, print the JobCompletion
 ```
+
+The API underneath is plain loopback HTTP with protojson bodies
+(`POST /sessions`, `POST /sessions/{id}/task`, `GET /sessions/{id}`,
+`GET /sessions/{id}/completion`), so curl works wherever the CLI is not
+at hand.
 
 To dial a paid api instead, the spec's backend descriptor changes and
 nothing else does: `kind` ANTHROPIC_COMPATIBLE, the api's base_url, and
