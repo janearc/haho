@@ -77,13 +77,17 @@ history, so this README never describes two systems' knobs at once.
 
 ## Running hahod
 
-hahod runs as a launchd user agent — started and stopped like any other
-daemon on the host:
+hahod runs as a launchd user agent. Install once —
+`deploy/install-daemon.sh` builds the binary, renders the plist with
+absolute paths, and bootstraps it — and from then on it is managed with
+launchctl like any other daemon on the host:
 
 ```
-make daemon-up       # build, render deploy/com.janearc.hahod.plist.in, bootstrap
-make daemon-down     # SIGTERM via bootout: drain-and-land, then exit
-make daemon-status   # launchd state + /health
+launchctl bootout   gui/$UID/com.janearc.hahod    # stop: SIGTERM, drain-and-land
+launchctl bootstrap gui/$UID ~/Library/LaunchAgents/com.janearc.hahod.plist
+launchctl kickstart -k gui/$UID/com.janearc.hahod # restart (e.g. after rebuild)
+launchctl print     gui/$UID/com.janearc.hahod    # status
+curl -s 127.0.0.1:8790/health                     # the daemon's own answer
 ```
 
 Logs are structured JSON at `~/.local/state/haho/log/hahod.log`; the
