@@ -72,7 +72,6 @@ func TestRefusals(t *testing.T) {
 		{"unknown kind", "unknown_backend_kind", func(s *jobpb.JobSpec) { s.Backend.Kind = jobpb.Backend_KIND_UNSPECIFIED }},
 		{"metal lane unserved", "lane_not_served", func(s *jobpb.JobSpec) { s.Backend.Kind = jobpb.Backend_MLX }},
 		{"ane lane unserved", "lane_not_served", func(s *jobpb.JobSpec) { s.Backend.Kind = jobpb.Backend_AFM }},
-		{"openai kind unserved", "backend_kind_not_served", func(s *jobpb.JobSpec) { s.Backend.Kind = jobpb.Backend_OPENAI_COMPATIBLE }},
 		{"resize unserved", "framing_not_served", func(s *jobpb.JobSpec) { s.Framing.Strategy = jobpb.Framing_RESIZE_ON_FAIL }},
 		{"framing unset", "framing_not_served", func(s *jobpb.JobSpec) { s.Framing = nil }},
 		{"mapesis unserved", "synthesis_not_served", func(s *jobpb.JobSpec) { s.Synthesis.Mode = jobpb.Synthesis_MAPESIS }},
@@ -108,6 +107,24 @@ func TestRefusals(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestOpenAIKindAdmitsWithoutCredential pins the local door: the
+// /api/chat-shaped kind is served and needs no token_env — local ollama
+// is credential-free by design.
+func TestOpenAIKindAdmitsWithoutCredential(t *testing.T) {
+	a := New(Defaults())
+	spec := servableSpec()
+	spec.Backend.Kind = jobpb.Backend_OPENAI_COMPATIBLE
+	spec.Backend.TokenEnv = ""
+	ticket, ref := a.Admit(spec)
+	if ref != nil {
+		t.Fatalf("openai kind refused: %v", ref)
+	}
+	if ticket.Lane != jobpb.Lane_LANE_API {
+		t.Fatalf("lane = %s, want LANE_API", ticket.Lane)
+	}
+	ticket.Release()
 }
 
 func TestSecretEnvPresentAdmits(t *testing.T) {

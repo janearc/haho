@@ -34,9 +34,11 @@ the RFC's section 8 sketch, generated code is committed (gen-freshness
 holds and is checkable: regenerate == committed), and `bin/hahod` serves
 the RFC's console walkthrough on loopback — sessions, the section 10
 admission table, structured JSON logging, `/health` and `/metrics`. The
-served surface is exactly: api lane, `ANTHROPIC_COMPATIBLE`,
-`WHOLE_OR_ERROR`, synthesis `NONE`, cache `NONE`, no filters. Everything
-else the contract can express is REFUSED at admission, loudly, by name.
+served surface is exactly: api lane, both api kinds
+(`ANTHROPIC_COMPATIBLE` and `OPENAI_COMPATIBLE` — local ollama rides the
+latter, credential-free), `WHOLE_OR_ERROR`, synthesis `NONE`, cache
+`NONE`, no filters. Everything else the contract can express is REFUSED
+at admission, loudly, by name.
 
 Divergences from the RFC, surfaced (each is queued work, none is silent):
 
@@ -72,6 +74,54 @@ models rather than executing jobs. It earned several of the lessons the
 RFC is built on; its retirement is its own diff. Its operational surface
 is deliberately not documented here — it lives in this file's git
 history, so this README never describes two systems' knobs at once.
+
+## Running hahod
+
+hahod runs as a launchd user agent. Install once —
+`deploy/install-daemon.sh` builds the binary, renders the plist with
+absolute paths, and bootstraps it — and from then on it is managed with
+launchctl like any other daemon on the host:
+
+```
+launchctl bootout   gui/$UID/com.janearc.hahod    # stop: SIGTERM, drain-and-land
+launchctl bootstrap gui/$UID ~/Library/LaunchAgents/com.janearc.hahod.plist
+launchctl kickstart -k gui/$UID/com.janearc.hahod # restart (e.g. after rebuild)
+launchctl print     gui/$UID/com.janearc.hahod    # status
+curl -s 127.0.0.1:8790/health                     # the daemon's own answer
+```
+
+Logs are structured JSON at `~/.local/state/haho/log/hahod.log`; the
+store is `~/.local/state/haho/hahod.db`. The daemon serves loopback only
+(`127.0.0.1:8790` by default; `HAHOD_ADDR`/`HAHOD_STORE` or flags
+override). Stopping is graceful by construction: the listener stops,
+in-flight jobs land (FAILED with the cancellation as reason if they
+cannot finish), queued jobs land FAILED without running, and only then
+does the store close. A crash instead of a stop is converged at the next
+boot: the recovery sweep lands any orphaned row FAILED, loudly, before
+serving — and launchd's KeepAlive restarts a crashed daemon, which that
+sweep makes safe.
+
+The hello world dials the machine's own model — local ollama over the
+`/api/chat`-shaped door, no credential anywhere, because the paid api
+lane is the last resort and not the default:
+
+```
+SID=$(curl -sX POST 127.0.0.1:8790/sessions | jq -r .id)
+curl -sX POST 127.0.0.1:8790/sessions/$SID/task -d @deploy/hello-world.json
+curl -s 127.0.0.1:8790/sessions/$SID              # poll: in_flight, disposition
+curl -s 127.0.0.1:8790/sessions/$SID/completion   # the landed JobCompletion
+```
+
+To dial a paid api instead, the spec's backend descriptor changes and
+nothing else does: `kind` ANTHROPIC_COMPATIBLE, the api's base_url, and
+a `tokenEnv` naming a credential. `token_env` is per-spec and
+requestor-owned — holden's specs will name holden's credential, an
+operator job names the operator's; hahod is bound to none of them and
+only checks that the named var is set (unset = REFUSED at admission with
+`secret_env_missing` naming the var, loud, spending nothing). Getting a
+value into the supervised daemon's environment is `launchctl setenv` by
+the operator's own hand; a durable secrets story is deliberately
+deferred work.
 
 - Contracts: `proto/` (buf v2); consumers vendor-generate, gen-freshness
   holds.

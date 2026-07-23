@@ -4,6 +4,10 @@ build:
 	go build -o bin/haho ./cmd/haho
 	go build -o bin/hahod ./cmd/hahod
 
+# Daemon lifecycle is deliberately NOT here: deploy/install-daemon.sh
+# installs the launchd agent once, and from then on hahod is managed with
+# launchctl like any other daemon on the host.
+
 test:
 	go test ./... -v
 

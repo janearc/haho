@@ -1,0 +1,13 @@
+{
+  "jobId": "hello-world-1",
+  "payload": {"text": "Say hello to the mesh in one sentence."},
+  "backend": {
+    "kind": "OPENAI_COMPATIBLE",
+    "baseUrl": "http://127.0.0.1:11434",
+    "model": "mistral-24b:latest"
+  },
+  "framing": {"strategy": "WHOLE_OR_ERROR"},
+  "synthesis": {"mode": "NONE"},
+  "cache": {"kind": "NONE"},
+  "allowPartial": false
+}

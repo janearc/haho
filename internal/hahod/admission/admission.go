@@ -177,10 +177,12 @@ func New(b Budgets) *Admission {
 
 // Admit validates and reserves. The nil-Refusal path returns a Ticket whose
 // Wait/Release manage the lane slot. The served surface today is exactly:
-// api lane, ANTHROPIC_COMPATIBLE, WHOLE_OR_ERROR, synthesis NONE, cache
-// NONE, no filters, text or messages payload. Everything else the contract
-// can express is REFUSED by name until the code that serves it exists —
-// admission never promises what the machine cannot do.
+// api lane, the two api kinds (ANTHROPIC_COMPATIBLE and OPENAI_COMPATIBLE
+// — local ollama rides the latter, credential-free), WHOLE_OR_ERROR,
+// synthesis NONE, cache NONE, no filters, text or messages payload.
+// Everything else the contract can express is REFUSED by name until the
+// code that serves it exists — admission never promises what the machine
+// cannot do.
 func (a *Admission) Admit(spec *jobpb.JobSpec) (*Ticket, *Refusal) {
 	if spec.GetJobId() == "" {
 		return nil, refuse("empty_job_id", "spec carries no job_id; the requestor assigns it")
@@ -193,7 +195,7 @@ func (a *Admission) Admit(spec *jobpb.JobSpec) (*Ticket, *Refusal) {
 	if lane != jobpb.Lane_LANE_API {
 		return nil, refuse("lane_not_served", "lane %s is not served yet; the api lane is the first door", lane)
 	}
-	if kind != jobpb.Backend_ANTHROPIC_COMPATIBLE {
+	if kind != jobpb.Backend_ANTHROPIC_COMPATIBLE && kind != jobpb.Backend_OPENAI_COMPATIBLE {
 		return nil, refuse("backend_kind_not_served", "backend kind %s is not served yet", kind)
 	}
 	if s := spec.GetFraming().GetStrategy(); s != jobpb.Framing_WHOLE_OR_ERROR {

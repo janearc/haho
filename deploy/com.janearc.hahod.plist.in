@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  hahod launchd agent template. `make daemon-up` renders @BIN@ and @LOG@
+  to absolute paths and installs to ~/Library/LaunchAgents — launchd does
+  not expand tildes, so the paths are stamped at install time, not here.
+
+  No secret values live in this file, ever: specs reference env var NAMES
+  and the daemon refuses jobs whose named vars are unset. Injecting values
+  into the daemon's environment (launchctl setenv, by the operator's own
+  hand) is deliberately deferred work — see README, "Running hahod".
+
+  ExitTimeOut covers hahod's full graceful stop: 10s HTTP shutdown plus
+  the 30s drain backstop, with slack. launchd sends SIGTERM at bootout and
+  only escalates to SIGKILL after this many seconds.
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.janearc.hahod</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>@BIN@</string>
+  </array>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>ExitTimeOut</key>
+  <integer>45</integer>
+  <key>StandardOutPath</key>
+  <string>@LOG@</string>
+  <key>StandardErrorPath</key>
+  <string>@LOG@</string>
+</dict>
+</plist>
