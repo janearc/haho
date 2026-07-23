@@ -19,10 +19,11 @@ import (
 // The descriptor carries base_url, model, and token_env (the env var NAME of
 // the credential — the value is read here at launch and goes nowhere but
 // the request header). params understood by this backend:
-//   max_tokens — response budget, default 4096
-//   timeout_s  — whole-attempt timeout, default 300; api latency is
-//                weather (RFC section 10), so the bound is generous and
-//                the requestor can tighten it
+//
+//	max_tokens — response budget, default 4096
+//	timeout_s  — whole-attempt timeout, default 300; api latency is
+//	             weather (RFC section 10), so the bound is generous and
+//	             the requestor can tighten it
 type anthropic struct {
 	baseURL   string
 	model     string
