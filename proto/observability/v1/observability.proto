@@ -1,0 +1,42 @@
+// VENDORED EXCERPT — the source of truth is big-little-mesh
+// proto/observability/v1/observability.proto. Consumers vendor-generate,
+// per mesh practice; this excerpt carries only what haho.job.v1 consumes
+// (HealthState, ServiceHealthHeartbeat), with names, field numbers, and
+// semantics verbatim. go_package is localized to this consumer, as
+// vendor-generation requires. Do not extend this file — re-vendor from the
+// source instead.
+
+syntax = "proto3";
+
+package observability.v1;
+
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/janearc/haho/gen/observabilitypb;observabilitypb";
+
+// HealthState is the fleet-wide health classification shared by service
+// heartbeats, fleet rollups, and quota runway.
+enum HealthState {
+  HEALTH_STATE_UNSPECIFIED = 0;
+  HEALTH_STATE_GREEN = 1;
+  HEALTH_STATE_YELLOW = 2;
+  HEALTH_STATE_RED = 3;
+  HEALTH_STATE_EXHAUSTED = 4; // terminal: quota fully consumed
+}
+
+// ServiceHealthHeartbeat is emitted by every fleet service on its heartbeat tick. Subject
+// (RecordNameStrategy): observability.v1.ServiceHealthHeartbeat. It is the mesh's liveness
+// signal, consumed by BOTH obs-svc-agg (health display) AND delightd (the registration
+// lease): delightd treats the ABSENCE of a service's heartbeat -- not its health state -- as
+// the service being gone. A heartbeat in any state (including RED) refreshes the lease; only
+// silence expires it. See docs/frood.md, "Your heartbeat is your keepalive".
+message ServiceHealthHeartbeat {
+  string service_name = 1;
+  HealthState current_state = 2;
+  uint32 uptime_seconds = 3;
+  uint32 internal_load_metric = 4;
+  google.protobuf.Timestamp timestamp = 5;
+
+  // idempotency_key makes duplicate delivery safe (UUID or service+timestamp).
+  string idempotency_key = 6;
+}

@@ -2,6 +2,7 @@
 
 build:
 	go build -o bin/haho ./cmd/haho
+	go build -o bin/hahod ./cmd/hahod
 
 test:
 	go test ./... -v

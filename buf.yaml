@@ -10,6 +10,12 @@ lint:
     - RPC_REQUEST_STANDARD_NAME
     - RPC_RESPONSE_STANDARD_NAME
     - RPC_REQUEST_RESPONSE_UNIQUE
+  ignore_only:
+    # haho.job.v1 keeps the RFC's enum value names ("AFM", "WHOLE_OR_ERROR"):
+    # the RFC's worked JSON specs are normative protojson, and prefixing the
+    # values would break every example in the ratifying document.
+    ENUM_VALUE_PREFIX:
+      - proto/haho/job/v1/job.proto
 breaking:
   use:
     - FILE
