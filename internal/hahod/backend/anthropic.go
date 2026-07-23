@@ -32,7 +32,14 @@ type anthropic struct {
 	client    *http.Client
 }
 
-const anthropicVersion = "2023-06-01"
+const (
+	anthropicVersion = "2023-06-01"
+	// maxResponseBytes caps what a misbehaving endpoint can stuff into a
+	// completion record; maxTimeoutSeconds caps how long one job can hold
+	// a lane slot.
+	maxResponseBytes  = 1 << 20
+	maxTimeoutSeconds = 3600
+)
 
 func init() {
 	Register(jobpb.Backend_ANTHROPIC_COMPATIBLE, newAnthropic)
@@ -64,6 +71,11 @@ func newAnthropic(spec *jobpb.JobSpec) (Backend, error) {
 		if err != nil || n <= 0 {
 			return nil, fmt.Errorf("anthropic: params.timeout_s %q is not a positive integer", raw)
 		}
+		if n > maxTimeoutSeconds {
+			// A lane slot is held for the whole attempt; an unbounded
+			// timeout lets one job park a slot indefinitely.
+			return nil, fmt.Errorf("anthropic: params.timeout_s %d exceeds the %ds ceiling", n, maxTimeoutSeconds)
+		}
 		timeout = time.Duration(n) * time.Second
 	}
 	return &anthropic{
@@ -93,7 +105,9 @@ type anthropicResponse struct {
 		Type string `json:"type"`
 		Text string `json:"text"`
 	} `json:"content"`
-	Usage struct {
+	// Usage is a pointer so an omitted block is distinguishable from a
+	// genuine zero: absent usage lands as -1, never a fabricated 0.
+	Usage *struct {
 		InputTokens  int32 `json:"input_tokens"`
 		OutputTokens int32 `json:"output_tokens"`
 	} `json:"usage"`
@@ -141,12 +155,17 @@ func (a *anthropic) Run(ctx context.Context, spec *jobpb.JobSpec) (*Result, erro
 	defer resp.Body.Close()
 	// The error body is diagnostic gold and small; the cap keeps a
 	// misbehaving endpoint from stuffing a completion record.
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBytes))
 	if err != nil {
 		return nil, fmt.Errorf("anthropic: read response: %w", err)
 	}
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("anthropic: %s: %s", resp.Status, truncate(string(body), 512))
+	}
+	if len(body) >= maxResponseBytes {
+		// Name the real fact: a truncated body would otherwise surface as
+		// a misleading JSON parse error.
+		return nil, fmt.Errorf("anthropic: response body reached the %d-byte cap; refusing to parse a possibly-truncated reply", maxResponseBytes)
 	}
 
 	var parsed anthropicResponse
@@ -163,12 +182,12 @@ func (a *anthropic) Run(ctx context.Context, spec *jobpb.JobSpec) (*Result, erro
 	if model == "" {
 		model = a.model
 	}
-	return &Result{
-		Text:      text.String(),
-		ModelUsed: model,
-		TokensIn:  parsed.Usage.InputTokens,
-		TokensOut: parsed.Usage.OutputTokens,
-	}, nil
+	res := &Result{Text: text.String(), ModelUsed: model, TokensIn: -1, TokensOut: -1}
+	if parsed.Usage != nil {
+		res.TokensIn = parsed.Usage.InputTokens
+		res.TokensOut = parsed.Usage.OutputTokens
+	}
+	return res, nil
 }
 
 func truncate(s string, n int) string {

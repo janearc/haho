@@ -1,7 +1,9 @@
 package admission
 
 import (
+	"context"
 	"testing"
+	"time"
 
 	"github.com/janearc/haho/gen/filterpb"
 	"github.com/janearc/haho/gen/jobpb"
@@ -51,7 +53,7 @@ func TestAdmitServableSpec(t *testing.T) {
 	if ref != nil {
 		t.Fatalf("servable spec refused: %v", ref)
 	}
-	if ticket.Queued {
+	if ticket.Queued() {
 		t.Fatal("empty lane should admit straight to a slot, not queue")
 	}
 	if ticket.Lane != jobpb.Lane_LANE_API {
@@ -130,7 +132,7 @@ func TestCapacityQueuesThenRefuses(t *testing.T) {
 	if ref != nil {
 		t.Fatalf("first admit refused: %v", ref)
 	}
-	if first.Queued {
+	if first.Queued() {
 		t.Fatal("first admit should hold the slot")
 	}
 
@@ -138,7 +140,7 @@ func TestCapacityQueuesThenRefuses(t *testing.T) {
 	if ref != nil {
 		t.Fatalf("second admit refused: %v", ref)
 	}
-	if !second.Queued {
+	if !second.Queued() {
 		t.Fatal("second admit should queue behind the budget of 1")
 	}
 
@@ -153,10 +155,152 @@ func TestCapacityQueuesThenRefuses(t *testing.T) {
 	// Releasing the slot lets the queued ticket through.
 	done := make(chan struct{})
 	go func() {
-		second.Wait()
+		if err := second.Wait(context.Background()); err != nil {
+			t.Errorf("wait: %v", err)
+		}
 		close(done)
 	}()
 	first.Release()
 	<-done
 	second.Release()
+}
+
+// TestReleaseOnQueuedTicketSurrendersQueueNotSlot pins the blocker found in
+// review: releasing a still-queued ticket must decrement the queue and must
+// NOT consume a slot token another job holds (which admitted budget+1,
+// leaked queue capacity, and could hang the releasing goroutine forever).
+func TestReleaseOnQueuedTicketSurrendersQueueNotSlot(t *testing.T) {
+	b := Defaults()
+	b.API = LaneCfg{Budget: 1, Queue: 1}
+	a := New(b)
+
+	first, ref := a.Admit(servableSpec())
+	if ref != nil {
+		t.Fatalf("first admit refused: %v", ref)
+	}
+	second, ref := a.Admit(servableSpec())
+	if ref != nil {
+		t.Fatalf("second admit refused: %v", ref)
+	}
+
+	// Pre-fix this blocked forever or stole first's slot; now it must
+	// return promptly and only surrender the queue position.
+	released := make(chan struct{})
+	go func() { second.Release(); close(released) }()
+	select {
+	case <-released:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Release on a queued ticket blocked")
+	}
+
+	// Queue capacity is restored: a new job queues instead of REFUSED.
+	third, ref := a.Admit(servableSpec())
+	if ref != nil {
+		t.Fatalf("queue capacity leaked: %v", ref)
+	}
+	if !third.Queued() {
+		t.Fatal("third should queue: first still holds the only slot")
+	}
+
+	// And first still holds its slot: budget stays 1, so third is queued
+	// until first releases.
+	first.Release()
+	if err := third.Wait(context.Background()); err != nil {
+		t.Fatalf("wait after release: %v", err)
+	}
+	third.Release()
+}
+
+func TestReleaseIsIdempotent(t *testing.T) {
+	b := Defaults()
+	b.API = LaneCfg{Budget: 1, Queue: 1}
+	a := New(b)
+	ticket, ref := a.Admit(servableSpec())
+	if ref != nil {
+		t.Fatalf("admit refused: %v", ref)
+	}
+	ticket.Release()
+	ticket.Release() // second settle is a no-op, not a slot underflow
+	next, ref := a.Admit(servableSpec())
+	if ref != nil {
+		t.Fatalf("admit after double release refused: %v", ref)
+	}
+	if next.Queued() {
+		t.Fatal("slot should be free after release")
+	}
+	next.Release()
+}
+
+// TestWaitAbortsOnContext pins shutdown semantics: a queued job abandoned
+// by a dying daemon surrenders its queue position and reports the abort.
+func TestWaitAbortsOnContext(t *testing.T) {
+	b := Defaults()
+	b.API = LaneCfg{Budget: 1, Queue: 1}
+	a := New(b)
+	first, _ := a.Admit(servableSpec())
+	second, _ := a.Admit(servableSpec())
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := second.Wait(ctx); err == nil {
+		t.Fatal("Wait on a dead context must error")
+	}
+	second.Release() // settled; must be a safe no-op
+
+	// The surrendered queue position is available again.
+	third, ref := a.Admit(servableSpec())
+	if ref != nil {
+		t.Fatalf("queue position leaked on abort: %v", ref)
+	}
+	third.Release()
+	first.Release()
+}
+
+// TestDefaultsPinTheSection10Table keeps the RFC numbers honest: a typo'd
+// budget passes every behavioral test, so the table itself is pinned.
+func TestDefaultsPinTheSection10Table(t *testing.T) {
+	b := Defaults()
+	if b.Metal != (LaneCfg{Budget: 1, Queue: 4}) {
+		t.Fatalf("metal = %+v", b.Metal)
+	}
+	if b.API != (LaneCfg{Budget: 16, Queue: 64}) {
+		t.Fatalf("api = %+v", b.API)
+	}
+	if b.CPU != (LaneCfg{Budget: 8, Queue: 32}) {
+		t.Fatalf("cpu = %+v", b.CPU)
+	}
+	if b.ANE.Queue != 8 || b.ANEDoors["afm"] != 1 || b.ANEDoors["speech"] != 3 {
+		t.Fatalf("ane = %+v doors %+v", b.ANE, b.ANEDoors)
+	}
+
+	// And the api lane genuinely admits 16 concurrent, queues 64, refuses
+	// the 81st.
+	a := New(b)
+	var tickets []*Ticket
+	for i := range 16 {
+		tk, ref := a.Admit(servableSpec())
+		if ref != nil {
+			t.Fatalf("admit %d refused: %v", i, ref)
+		}
+		if tk.Queued() {
+			t.Fatalf("admit %d queued below budget", i)
+		}
+		tickets = append(tickets, tk)
+	}
+	for i := range 64 {
+		tk, ref := a.Admit(servableSpec())
+		if ref != nil {
+			t.Fatalf("queue admit %d refused: %v", i, ref)
+		}
+		if !tk.Queued() {
+			t.Fatalf("queue admit %d got a slot past budget", i)
+		}
+		tickets = append(tickets, tk)
+	}
+	if _, ref := a.Admit(servableSpec()); ref == nil || ref.Code != "queue_full" {
+		t.Fatalf("81st admit = %v, want queue_full", ref)
+	}
+	for _, tk := range tickets {
+		tk.Release()
+	}
 }

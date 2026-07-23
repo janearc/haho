@@ -7,8 +7,10 @@
 package admission
 
 import (
+	"context"
 	"fmt"
 	"os"
+	"sync"
 	"sync/atomic"
 
 	"github.com/janearc/haho/gen/jobpb"
@@ -71,26 +73,80 @@ func refuse(code, format string, args ...any) *Refusal {
 	return &Refusal{Code: code, Reason: fmt.Sprintf(format, args...)}
 }
 
-// Ticket is an admitted job's claim on its lane. Wait blocks until a run
-// slot is held (immediately satisfied when admission found a free slot);
-// Release returns the slot. Every admitted ticket must be released exactly
-// once.
+// Ticket is an admitted job's claim on its lane: either a held run slot or
+// a queue position, never both, and Release settles whichever the ticket
+// actually holds. A queued ticket that never reached a slot must NOT give
+// a slot token back — that would steal a running job's slot and admit
+// budget+1 (found by adversarial review, demonstrated with a repro).
+// Release is idempotent; Wait and Release are not called concurrently by
+// design (one goroutine owns a ticket), the mutex is cheap insurance.
 type Ticket struct {
-	Lane   jobpb.Lane
-	Queued bool
-	gate   *laneGate
+	Lane  jobpb.Lane
+	gate  *laneGate
+	mu    sync.Mutex
+	state ticketState
 }
 
-func (t *Ticket) Wait() {
-	if !t.Queued {
-		return
+type ticketState int
+
+const (
+	ticketHeld   ticketState = iota // a run slot is held
+	ticketQueued                    // counted in the queue, no slot yet
+	ticketDone                      // settled; Release already happened
+)
+
+// Queued reports whether the ticket is still waiting on a slot.
+func (t *Ticket) Queued() bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.state == ticketQueued
+}
+
+// Wait blocks a queued ticket until a run slot is held or ctx ends. On a
+// held ticket it returns immediately. On ctx cancellation the queue
+// position is surrendered and the ticket is settled — the caller lands the
+// job FAILED, loudly; it never runs.
+func (t *Ticket) Wait(ctx context.Context) error {
+	t.mu.Lock()
+	if t.state != ticketQueued {
+		state := t.state
+		t.mu.Unlock()
+		if state == ticketHeld {
+			return nil
+		}
+		return fmt.Errorf("admission: Wait on a settled ticket")
 	}
-	t.gate.slots <- struct{}{}
-	t.gate.queued.Add(-1)
-	t.Queued = false
+	t.mu.Unlock()
+
+	select {
+	case t.gate.slots <- struct{}{}:
+		t.gate.queued.Add(-1)
+		t.mu.Lock()
+		t.state = ticketHeld
+		t.mu.Unlock()
+		return nil
+	case <-ctx.Done():
+		t.gate.queued.Add(-1)
+		t.mu.Lock()
+		t.state = ticketDone
+		t.mu.Unlock()
+		return ctx.Err()
+	}
 }
 
-func (t *Ticket) Release() { <-t.gate.slots }
+// Release settles the ticket: a held slot goes back to the lane, a queue
+// position is decremented, a settled ticket is a no-op.
+func (t *Ticket) Release() {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	switch t.state {
+	case ticketHeld:
+		<-t.gate.slots
+	case ticketQueued:
+		t.gate.queued.Add(-1)
+	}
+	t.state = ticketDone
+}
 
 type laneGate struct {
 	slots    chan struct{}
@@ -171,7 +227,7 @@ func (a *Admission) Admit(spec *jobpb.JobSpec) (*Ticket, *Refusal) {
 	// full queue is REFUSED — never silently held past it.
 	select {
 	case a.api.slots <- struct{}{}:
-		return &Ticket{Lane: lane, gate: a.api}, nil
+		return &Ticket{Lane: lane, state: ticketHeld, gate: a.api}, nil
 	default:
 	}
 	if n := a.api.queued.Add(1); n > a.api.queueCap {
@@ -179,5 +235,5 @@ func (a *Admission) Admit(spec *jobpb.JobSpec) (*Ticket, *Refusal) {
 		return nil, refuse("queue_full", "api lane at budget %d with queue %d full",
 			a.budgets.API.Budget, a.budgets.API.Queue)
 	}
-	return &Ticket{Lane: lane, Queued: true, gate: a.api}, nil
+	return &Ticket{Lane: lane, state: ticketQueued, gate: a.api}, nil
 }

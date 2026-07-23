@@ -236,13 +236,13 @@ func TestUnknownSessionIs404(t *testing.T) {
 	}
 }
 
-func TestCompletionBeforeLandingIs404(t *testing.T) {
+func TestCompletionBeforeLandingIs409(t *testing.T) {
 	hahod := newTestServer(t)
 	_, created := postJSON(t, hahod.URL+"/sessions", nil)
 	id := created["id"].(string)
 	status, resp := getJSON(t, fmt.Sprintf("%s/sessions/%s/completion", hahod.URL, id))
-	if status != http.StatusNotFound {
-		t.Fatalf("status = %d, want 404: no completion has landed", status)
+	if status != http.StatusConflict {
+		t.Fatalf("status = %d, want 409: session exists, nothing has landed — distinguishable from 404", status)
 	}
 	if resp["error"] == nil {
 		t.Fatalf("expected a loud error body, got %v", resp)

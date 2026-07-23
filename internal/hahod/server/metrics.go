@@ -12,13 +12,14 @@ import (
 // atomics — a handful of counters is not worth a client library. Every
 // daemon on this mesh exposes /health and /metrics; this is hahod's.
 type metrics struct {
-	sessionsCreated atomic.Int64
-	jobsAdmitted    atomic.Int64
-	jobsRefused     atomic.Int64
-	jobsInFlight    atomic.Int64
-	landedProduced  atomic.Int64
-	landedPartial   atomic.Int64
-	landedFailed    atomic.Int64
+	sessionsCreated      atomic.Int64
+	jobsAdmitted         atomic.Int64
+	jobsRefused          atomic.Int64
+	jobsInFlight         atomic.Int64
+	landedProduced       atomic.Int64
+	landedPartial        atomic.Int64
+	landedFailed         atomic.Int64
+	landingWriteFailures atomic.Int64
 }
 
 func (m *metrics) landed(outcome jobpb.JobCompletion_Outcome) {
@@ -46,4 +47,6 @@ func (m *metrics) handler(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, "hahod_jobs_landed_total{outcome=\"PRODUCED\"} %d\n", m.landedProduced.Load())
 	fmt.Fprintf(w, "hahod_jobs_landed_total{outcome=\"PARTIAL\"} %d\n", m.landedPartial.Load())
 	fmt.Fprintf(w, "hahod_jobs_landed_total{outcome=\"FAILED\"} %d\n", m.landedFailed.Load())
+	fmt.Fprintf(w, "# TYPE hahod_landing_write_failures_total counter\n")
+	fmt.Fprintf(w, "hahod_landing_write_failures_total %d\n", m.landingWriteFailures.Load())
 }

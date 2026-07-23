@@ -196,6 +196,58 @@ func TestErrorBodyIsTruncated(t *testing.T) {
 	}
 }
 
+// TestAbsentUsageIsMinusOne pins the seam contract: absent is not zero.
+// Pre-fix an omitted usage block landed as a fabricated 0/0.
+func TestAbsentUsageIsMinusOne(t *testing.T) {
+	srv, _ := stub(t, http.StatusOK, `{"model":"m","content":[{"type":"text","text":"out"}]}`)
+	spec := specFor(srv.URL)
+	b, err := New(spec)
+	if err != nil {
+		t.Fatalf("construct: %v", err)
+	}
+	res, err := b.Run(context.Background(), spec)
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if res.TokensIn != -1 || res.TokensOut != -1 {
+		t.Fatalf("tokens = %d/%d, want -1/-1: absent is not zero", res.TokensIn, res.TokensOut)
+	}
+}
+
+// TestResponseCapIsNamed pins that a body hitting the cap errors with the
+// cap as the reason, not a misleading JSON parse error.
+func TestResponseCapIsNamed(t *testing.T) {
+	big := strings.Repeat("x", maxResponseBytes+100)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(`{"content":[{"type":"text","text":"` + big + `"}]}`))
+	}))
+	defer srv.Close()
+	spec := specFor(srv.URL)
+	b, err := New(spec)
+	if err != nil {
+		t.Fatalf("construct: %v", err)
+	}
+	_, err = b.Run(context.Background(), spec)
+	if err == nil {
+		t.Fatal("capped body must error")
+	}
+	if !strings.Contains(err.Error(), "cap") {
+		t.Fatalf("error %q must name the cap, not mislabel the truncation", err)
+	}
+}
+
+func TestTimeoutCeiling(t *testing.T) {
+	spec := specFor("http://127.0.0.1:1")
+	spec.Backend.Params = map[string]string{"timeout_s": "31536000"}
+	if _, err := New(spec); err == nil {
+		t.Fatal("a year-long timeout must refuse construction: a lane slot is not parkable")
+	}
+	spec.Backend.Params = map[string]string{"timeout_s": "3600"}
+	if _, err := New(spec); err != nil {
+		t.Fatalf("the ceiling itself must construct: %v", err)
+	}
+}
+
 func TestRegistryRefusesUnknownKind(t *testing.T) {
 	spec := specFor("http://127.0.0.1:1")
 	spec.Backend.Kind = jobpb.Backend_MLX

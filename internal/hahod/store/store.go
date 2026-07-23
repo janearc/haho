@@ -25,9 +25,12 @@ const (
 	StateLanded  State = "landed"  // a JobCompletion exists, terminal
 )
 
+// queued -> landed exists for exactly two loud paths: a queued job
+// abandoned at shutdown, and the startup recovery sweep landing orphans as
+// FAILED. A queued job that RUNS still goes through running.
 var transitions = map[State][]State{
 	StateCreated: {StateQueued, StateRunning},
-	StateQueued:  {StateRunning},
+	StateQueued:  {StateRunning, StateLanded},
 	StateRunning: {StateLanded},
 	StateLanded:  {},
 }
@@ -68,15 +71,16 @@ func Open(path string) (*Store, error) {
 
 func (s *Store) Close() error { return s.db.Close() }
 
-// Create writes a new quiescent session. Creation is idempotent on ID: a
-// second create of the same ID is an error, never an overwrite.
+// Create writes a new quiescent session. IDs are unique: a second create
+// of the same ID answers ErrExists, never an overwrite — the caller
+// decides whether to re-mint or fail.
 func (s *Store) Create(id string) (*Session, error) {
 	now := time.Now().UTC()
 	sess := &Session{ID: id, CreatedAt: now, UpdatedAt: now, State: StateCreated}
 	err := s.db.Update(func(tx *bolt.Tx) error {
 		b := tx.Bucket(bucketSessions)
 		if b.Get([]byte(id)) != nil {
-			return fmt.Errorf("store: session %s already exists", id)
+			return fmt.Errorf("session %s: %w", id, ErrExists)
 		}
 		return putSession(b, sess)
 	})
@@ -84,6 +88,26 @@ func (s *Store) Create(id string) (*Session, error) {
 		return nil, err
 	}
 	return sess, nil
+}
+
+// List returns every session row. The recovery sweep and the (future)
+// sweeper walk this; it is not a serving-path call.
+func (s *Store) List() ([]*Session, error) {
+	var out []*Session
+	err := s.db.View(func(tx *bolt.Tx) error {
+		return tx.Bucket(bucketSessions).ForEach(func(_, raw []byte) error {
+			sess := new(Session)
+			if err := json.Unmarshal(raw, sess); err != nil {
+				return err
+			}
+			out = append(out, sess)
+			return nil
+		})
+	})
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 func (s *Store) Get(id string) (*Session, error) {
@@ -118,7 +142,7 @@ func (s *Store) Transition(id string, to State, mutate func(*Session)) (*Session
 			return err
 		}
 		if !allowed(sess.State, to) {
-			return fmt.Errorf("store: session %s: illegal transition %s -> %s", id, sess.State, to)
+			return fmt.Errorf("session %s: %s -> %s: %w", id, sess.State, to, ErrIllegalTransition)
 		}
 		sess.State = to
 		sess.UpdatedAt = time.Now().UTC()
@@ -145,6 +169,11 @@ func putSession(b *bolt.Bucket, sess *Session) error {
 	return b.Put([]byte(sess.ID), raw)
 }
 
-// ErrNotFound is a sentinel: the session does not exist. Callers map it to
-// their own surface (the HTTP layer answers 404).
-var ErrNotFound = fmt.Errorf("store: session not found")
+// Sentinels. Callers map them to their own surface: the HTTP layer answers
+// 404 for ErrNotFound, 409 for ErrIllegalTransition (a racing double-task
+// is the client's conflict, not a server fault), and re-mints on ErrExists.
+var (
+	ErrNotFound          = fmt.Errorf("store: session not found")
+	ErrExists            = fmt.Errorf("store: session already exists")
+	ErrIllegalTransition = fmt.Errorf("store: illegal transition")
+)

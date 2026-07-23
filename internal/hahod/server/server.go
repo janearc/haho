@@ -1,7 +1,9 @@
-// Package server is hahod's loopback HTTP surface (RFC section 8): the
-// haho CLI and the client library are thin wrappers over exactly these
-// routes. On the wire, protojson — a task body IS a haho.job.v1.JobSpec,
-// and a completion reads back byte-identical to what landed.
+// Package server is hahod's loopback HTTP surface (RFC section 8). The
+// haho CLI and client library, when built, will be thin wrappers over
+// exactly these routes; today the PoC binary of the same name speaks the
+// old control API and is not that CLI. On the wire, protojson — a task
+// body IS a haho.job.v1.JobSpec, and a completion reads back
+// byte-identical to what landed.
 package server
 
 import (
@@ -15,6 +17,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"sync"
 	"time"
 
 	"google.golang.org/protobuf/encoding/protojson"
@@ -38,6 +41,8 @@ type Server struct {
 	baseCtx context.Context // bounds every run; the daemon's lifetime, not a request's
 	started time.Time
 	metrics *metrics
+	wg      sync.WaitGroup         // every execute goroutine; Drain joins them
+	idFn    func() (string, error) // session id mint; swappable in tests
 }
 
 func New(ctx context.Context, st *store.Store, adm *admission.Admission, log *slog.Logger, addr string) *Server {
@@ -49,8 +54,14 @@ func New(ctx context.Context, st *store.Store, adm *admission.Admission, log *sl
 		baseCtx: ctx,
 		started: time.Now(),
 		metrics: &metrics{},
+		idFn:    newSessionID,
 	}
 }
+
+// Drain joins every in-flight execute goroutine. Call after the HTTP
+// listener stops and before the store closes: with the base context
+// cancelled, runs land FAILED quickly and nothing exits half-recorded.
+func (s *Server) Drain() { s.wg.Wait() }
 
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
@@ -77,19 +88,32 @@ func (s *Server) logged(next http.Handler) http.Handler {
 }
 
 // handleNew creates a quiescent session: it exists before its task arrives,
-// and that gap lives in hahod's store (RFC section 8).
+// and that gap lives in hahod's store (RFC section 8). The id space is 20
+// bits behind a constant pid and the store is never pruned (the sweeper is
+// future work), so collisions are expected at scale — the mint retries
+// loudly instead of surfacing a spurious 500.
 func (s *Server) handleNew(w http.ResponseWriter, r *http.Request) {
-	id, err := newSessionID()
-	if err != nil {
-		s.fail(w, http.StatusInternalServerError, "mint session id: %v", err)
-		return
-	}
-	if _, err := s.store.Create(id); err != nil {
+	const mintAttempts = 8
+	for range mintAttempts {
+		id, err := s.idFn()
+		if err != nil {
+			s.fail(w, http.StatusInternalServerError, "mint session id: %v", err)
+			return
+		}
+		_, err = s.store.Create(id)
+		if err == nil {
+			s.metrics.sessionsCreated.Add(1)
+			writeJSON(w, http.StatusCreated, map[string]any{"id": id, "created": true})
+			return
+		}
+		if errors.Is(err, store.ErrExists) {
+			s.log.Warn("session id collision, re-minting", "id", id)
+			continue
+		}
 		s.fail(w, http.StatusInternalServerError, "create session: %v", err)
 		return
 	}
-	s.metrics.sessionsCreated.Add(1)
-	writeJSON(w, http.StatusCreated, map[string]any{"id": id, "created": true})
+	s.fail(w, http.StatusInternalServerError, "session id space exhausted after %d mints; the store needs pruning", mintAttempts)
 }
 
 // handleTask is admission's door. The body is a JobSpec in protojson,
@@ -138,22 +162,36 @@ func (s *Server) handleTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// The Transition is the atomic claim on the session: of two racing
+	// tasks both passing the state check above, exactly one claims it here;
+	// the loser is the client's conflict (409), never a server fault, and
+	// its ticket settles cleanly (queue position surrendered, no slot
+	// touched).
+	queued := ticket.Queued()
 	first := store.StateRunning
-	if ticket.Queued {
+	if queued {
 		first = store.StateQueued
 	}
 	if _, err := s.store.Transition(id, first, func(sess *store.Session) {
 		sess.JobID = spec.GetJobId()
 	}); err != nil {
 		ticket.Release()
-		s.fail(w, http.StatusInternalServerError, "record tasking: %v", err)
+		switch {
+		case errors.Is(err, store.ErrIllegalTransition):
+			s.fail(w, http.StatusConflict, "session %s already claimed: %v", id, err)
+		case errors.Is(err, store.ErrNotFound):
+			s.fail(w, http.StatusNotFound, "no session %s", id)
+		default:
+			s.fail(w, http.StatusInternalServerError, "record tasking: %v", err)
+		}
 		return
 	}
 	s.metrics.jobsAdmitted.Add(1)
 	s.log.Info("job admitted", "session", id, "job_id", spec.GetJobId(),
-		"lane", ticket.Lane.String(), "queued", ticket.Queued)
+		"lane", ticket.Lane.String(), "queued", queued)
 
-	go s.execute(id, spec, ticket)
+	s.wg.Add(1)
+	go s.execute(id, spec, ticket, queued)
 
 	writeJSON(w, http.StatusAccepted, map[string]any{
 		"id": id, "accepted": true,
@@ -161,41 +199,98 @@ func (s *Server) handleTask(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// execute runs the admitted job to its landing. It owns the ticket: the
-// lane slot is held for exactly the run and released on every path.
-func (s *Server) execute(id string, spec *jobpb.JobSpec, ticket *admission.Ticket) {
-	if ticket.Queued {
-		ticket.Wait()
+// execute runs the admitted job to its landing. It owns the ticket (the
+// lane claim settles on every path) and it is tracked by the drain group:
+// an admitted job always lands a completion — PRODUCED, or FAILED with the
+// specific reason, including "the daemon shut down" — before the daemon
+// exits.
+func (s *Server) execute(id string, spec *jobpb.JobSpec, ticket *admission.Ticket, queued bool) {
+	defer s.wg.Done()
+	defer ticket.Release()
+
+	if queued {
+		if err := ticket.Wait(s.baseCtx); err != nil {
+			// Shutdown reached a job still waiting on a slot: it never
+			// runs, and that fact lands loudly instead of stranding the
+			// session queued forever.
+			s.land(id, &jobpb.JobCompletion{
+				JobId:   spec.GetJobId(),
+				Outcome: jobpb.JobCompletion_FAILED,
+				Reason:  fmt.Sprintf("the daemon shut down before a lane slot freed: %v", err),
+			})
+			return
+		}
 		if _, err := s.store.Transition(id, store.StateRunning, nil); err != nil {
-			// The row disagrees with the machine; surface it and put the
-			// slot back — never run against a state we cannot record.
+			// The row disagrees with the machine; surface it loudly —
+			// never run against a state we cannot record.
 			s.log.Error("queued session cannot enter running", "session", id, "error", err)
-			ticket.Release()
+			s.metrics.landingWriteFailures.Add(1)
 			return
 		}
 	}
-	defer ticket.Release()
 
 	s.metrics.jobsInFlight.Add(1)
 	// The daemon's lifetime is the bound here, not a request context: the
 	// requestor already got its 202 and reads the landing from the store.
 	completion := runner.Run(s.baseCtx, spec)
 	s.metrics.jobsInFlight.Add(-1)
-	s.metrics.landed(completion.GetOutcome())
+	s.land(id, completion)
+}
 
+// land records the completion. Metrics count a landing only once the store
+// write succeeds — /metrics and the session row never disagree; a failed
+// landing write is its own loud counter and log line.
+func (s *Server) land(id string, completion *jobpb.JobCompletion) {
 	raw, err := protojson.Marshal(completion)
 	if err != nil {
 		s.log.Error("marshal completion", "session", id, "error", err)
-		raw = []byte(fmt.Sprintf(`{"jobId":%q,"outcome":"FAILED","reason":"completion failed to marshal"}`, spec.GetJobId()))
+		raw = fmt.Appendf(nil, `{"jobId":%q,"outcome":"FAILED","reason":"completion failed to marshal"}`, completion.GetJobId())
 	}
 	if _, err := s.store.Transition(id, store.StateLanded, func(sess *store.Session) {
 		sess.Completion = raw
 	}); err != nil {
 		s.log.Error("record landing", "session", id, "error", err)
+		s.metrics.landingWriteFailures.Add(1)
 		return
 	}
-	s.log.Info("job landed", "session", id, "job_id", spec.GetJobId(),
+	s.metrics.landed(completion.GetOutcome())
+	s.log.Info("job landed", "session", id, "job_id", completion.GetJobId(),
 		"outcome", completion.GetOutcome().String(), "wall_ms", completion.GetWallMs())
+}
+
+// RecoverOrphans lands every queued or running row as FAILED, loudly. It
+// runs once at daemon startup: a row in flight when no flight exists is a
+// crash's leftover, and presenting it as alive would be smuggled
+// degradation.
+func RecoverOrphans(st *store.Store, log *slog.Logger) (int, error) {
+	rows, err := st.List()
+	if err != nil {
+		return 0, fmt.Errorf("recovery scan: %w", err)
+	}
+	recovered := 0
+	for _, row := range rows {
+		if row.State != store.StateQueued && row.State != store.StateRunning {
+			continue
+		}
+		completion := &jobpb.JobCompletion{
+			JobId:   row.JobID,
+			Outcome: jobpb.JobCompletion_FAILED,
+			Reason:  "hahod restarted before this job landed; the flight is lost",
+		}
+		raw, err := protojson.Marshal(completion)
+		if err != nil {
+			return recovered, fmt.Errorf("marshal recovery completion for %s: %w", row.ID, err)
+		}
+		if _, err := st.Transition(row.ID, store.StateLanded, func(sess *store.Session) {
+			sess.Completion = raw
+		}); err != nil {
+			return recovered, fmt.Errorf("land orphan %s: %w", row.ID, err)
+		}
+		log.Warn("orphaned session landed FAILED at startup",
+			"session", row.ID, "job_id", row.JobID, "was", string(row.State))
+		recovered++
+	}
+	return recovered, nil
 }
 
 // handleStatus answers the RFC's status shape: id, in_flight, disposition.
@@ -234,7 +329,10 @@ func (s *Server) handleCompletion(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if sess.State != store.StateLanded {
-		s.fail(w, http.StatusNotFound, "session %s is %s; no completion has landed", id, sess.State)
+		// 409, not 404: the session exists and a poller must be able to
+		// tell "still in flight" from "no such session" without parsing
+		// error prose.
+		s.fail(w, http.StatusConflict, "session %s is %s; no completion has landed", id, sess.State)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")

@@ -80,8 +80,54 @@ func TestIllegalTransitionIsLoud(t *testing.T) {
 	if _, err := s.Create("haho-1-aaaaa"); err != nil {
 		t.Fatalf("create: %v", err)
 	}
-	if _, err := s.Transition("haho-1-aaaaa", StateLanded, nil); err == nil {
-		t.Fatal("created -> landed must be refused; a session lands only from running")
+	_, err := s.Transition("haho-1-aaaaa", StateLanded, nil)
+	if err == nil {
+		t.Fatal("created -> landed must be refused; a session lands from running or queued only")
+	}
+	if !errors.Is(err, ErrIllegalTransition) {
+		t.Fatalf("err = %v, want ErrIllegalTransition sentinel (the HTTP layer maps it to 409)", err)
+	}
+}
+
+// TestQueuedLandsDirectly pins the recovery edge: a queued job abandoned at
+// shutdown (or found orphaned at startup) lands FAILED without running.
+func TestQueuedLandsDirectly(t *testing.T) {
+	s, _ := openTemp(t)
+	if _, err := s.Create("haho-1-aaaaa"); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	if _, err := s.Transition("haho-1-aaaaa", StateQueued, nil); err != nil {
+		t.Fatalf("created -> queued: %v", err)
+	}
+	if _, err := s.Transition("haho-1-aaaaa", StateLanded, nil); err != nil {
+		t.Fatalf("queued -> landed must be legal for shutdown/recovery landings: %v", err)
+	}
+}
+
+func TestCreateCollisionIsTypedSentinel(t *testing.T) {
+	s, _ := openTemp(t)
+	if _, err := s.Create("haho-1-aaaaa"); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	_, err := s.Create("haho-1-aaaaa")
+	if !errors.Is(err, ErrExists) {
+		t.Fatalf("err = %v, want ErrExists sentinel (the mint loop retries on it)", err)
+	}
+}
+
+func TestList(t *testing.T) {
+	s, _ := openTemp(t)
+	for _, id := range []string{"haho-1-aaaaa", "haho-1-bbbbb", "haho-1-ccccc"} {
+		if _, err := s.Create(id); err != nil {
+			t.Fatalf("create %s: %v", id, err)
+		}
+	}
+	rows, err := s.List()
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(rows) != 3 {
+		t.Fatalf("len = %d, want 3", len(rows))
 	}
 }
 
