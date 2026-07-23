@@ -7,9 +7,19 @@ package backend
 import (
 	"context"
 	"fmt"
+	"strconv"
 
 	"github.com/janearc/haho/gen/jobpb"
 )
+
+// positiveInt parses a params value that must be a positive integer.
+func positiveInt(raw string) (int, error) {
+	n, err := strconv.Atoi(raw)
+	if err != nil || n <= 0 {
+		return 0, fmt.Errorf("not a positive integer: %q", raw)
+	}
+	return n, nil
+}
 
 // Result is one whole attempt's product, in the terms JobCompletion
 // surfaces: text out, the model that actually answered, and token counts

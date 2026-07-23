@@ -34,9 +34,11 @@ the RFC's section 8 sketch, generated code is committed (gen-freshness
 holds and is checkable: regenerate == committed), and `bin/hahod` serves
 the RFC's console walkthrough on loopback — sessions, the section 10
 admission table, structured JSON logging, `/health` and `/metrics`. The
-served surface is exactly: api lane, `ANTHROPIC_COMPATIBLE`,
-`WHOLE_OR_ERROR`, synthesis `NONE`, cache `NONE`, no filters. Everything
-else the contract can express is REFUSED at admission, loudly, by name.
+served surface is exactly: api lane, both api kinds
+(`ANTHROPIC_COMPATIBLE` and `OPENAI_COMPATIBLE` — local ollama rides the
+latter, credential-free), `WHOLE_OR_ERROR`, synthesis `NONE`, cache
+`NONE`, no filters. Everything else the contract can express is REFUSED
+at admission, loudly, by name.
 
 Divergences from the RFC, surfaced (each is queued work, none is silent):
 
@@ -95,24 +97,27 @@ boot: the recovery sweep lands any orphaned row FAILED, loudly, before
 serving — and launchd's KeepAlive restarts a crashed daemon, which that
 sweep makes safe.
 
-The hello world, once a credential is in the daemon's environment.
-`token_env` is per-spec and requestor-owned — holden's specs will name
-holden's credential, an operator job names the operator's; hahod is
-bound to none of them and only checks that the named var is set:
+The hello world dials the machine's own model — local ollama over the
+`/api/chat`-shaped door, no credential anywhere, because the paid api
+lane is the last resort and not the default:
 
 ```
-launchctl setenv ANTHROPIC_API_KEY <value>   # operator, by hand; no file
-make daemon-down daemon-up                    # env reads at spawn
 SID=$(curl -sX POST 127.0.0.1:8790/sessions | jq -r .id)
 curl -sX POST 127.0.0.1:8790/sessions/$SID/task -d @deploy/hello-world.json
 curl -s 127.0.0.1:8790/sessions/$SID              # poll: in_flight, disposition
 curl -s 127.0.0.1:8790/sessions/$SID/completion   # the landed JobCompletion
 ```
 
-Without the credential, the same task is REFUSED at admission with
-`secret_env_missing` naming the var — loud, spending nothing, value in
-no file. A durable secrets story for the supervised daemon (beyond
-`launchctl setenv` by hand) is deliberately deferred work.
+To dial a paid api instead, the spec's backend descriptor changes and
+nothing else does: `kind` ANTHROPIC_COMPATIBLE, the api's base_url, and
+a `tokenEnv` naming a credential. `token_env` is per-spec and
+requestor-owned — holden's specs will name holden's credential, an
+operator job names the operator's; hahod is bound to none of them and
+only checks that the named var is set (unset = REFUSED at admission with
+`secret_env_missing` naming the var, loud, spending nothing). Getting a
+value into the supervised daemon's environment is `launchctl setenv` by
+the operator's own hand; a durable secrets story is deliberately
+deferred work.
 
 - Contracts: `proto/` (buf v2); consumers vendor-generate, gen-freshness
   holds.

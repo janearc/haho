@@ -2,10 +2,9 @@
   "jobId": "hello-world-1",
   "payload": {"text": "Say hello to the mesh in one sentence."},
   "backend": {
-    "kind": "ANTHROPIC_COMPATIBLE",
-    "baseUrl": "https://api.anthropic.com",
-    "model": "claude-haiku-4-5-20251001",
-    "tokenEnv": "ANTHROPIC_API_KEY"
+    "kind": "OPENAI_COMPATIBLE",
+    "baseUrl": "http://127.0.0.1:11434",
+    "model": "mistral-24b:latest"
   },
   "framing": {"strategy": "WHOLE_OR_ERROR"},
   "synthesis": {"mode": "NONE"},
