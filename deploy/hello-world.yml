@@ -1,0 +1,17 @@
+# The authored form of deploy/hello-world.json — the RFC's job.yml. The
+# CLI converts YAML to JSON and validates it strictly against haho.job.v1
+# before it travels; an off-contract spec never leaves this machine.
+jobId: hello-world-yml-1
+payload:
+  text: Say hello to the mesh in one sentence.
+backend:
+  kind: OPENAI_COMPATIBLE
+  baseUrl: http://127.0.0.1:11434
+  model: mistral-24b:latest
+framing:
+  strategy: WHOLE_OR_ERROR
+synthesis:
+  mode: NONE
+cache:
+  kind: NONE
+allowPartial: false
