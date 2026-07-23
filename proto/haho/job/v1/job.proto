@@ -1,0 +1,207 @@
+// haho.job.v1 — the job contract: JobSpec in, JobEvents during, one
+// JobCompletion out. Transcribed from the RFC (docs/haho-rfc.md, section 8),
+// which is the design reference; where this file and the RFC disagree, that
+// is a bug in one of them and the divergence gets surfaced, never shipped
+// around. The section's three proto fences (the JobSpec-through-Cache
+// block, the vendored heartbeat excerpt, and the JobEvent/JobCompletion
+// block) merge here into one compilation unit — which is why this file
+// imports observability/v1, an import the first fence alone does not show.
+// On the wire and at rest, protojson. Enum value names are the RFC's
+// worked-spec names ("AFM", "WHOLE_OR_ERROR"), unprefixed on purpose: the
+// RFC's JSON specs are normative, so buf.yaml carries a scoped lint
+// exception rather than this file breaking every example in the document.
+
+syntax = "proto3";
+
+package haho.job.v1;
+
+option go_package = "github.com/janearc/haho/gen/jobpb;jobpb";
+
+import "google/protobuf/timestamp.proto";
+import "haho/common/v1/common.proto";
+import "haho/filter/v1/filter.proto";
+import "observability/v1/observability.proto";
+
+// Everything one unit of work needs, and nothing else. Immutable once the
+// job is created and accepted to run.
+message JobSpec {
+  string job_id = 1;          // requestor-assigned; rides every event and the lease
+  string correlation_id = 2;  // cross-pipeline correlation over the bus
+
+  Payload payload = 3;
+  Backend backend = 4;        // which model seam does the work (a descriptor)
+  Framing framing = 5;        // how work is fitted to the model (section 9)
+  Synthesis synthesis = 6;    // what happens to per-chunk results
+  Cache cache = 7;
+  haho.filter.v1.FilterPipelineConfig input_filters = 8;
+  haho.filter.v1.FilterPipelineConfig output_filters = 9;
+  reserved 10; // a Deadline lived here in drafts; the mesh makes no
+               // velocity promises (speedy RFC, section 8)
+  map<string, string> secret_env = 11; // logical name -> ENV VAR NAME.
+                                       // References, never values (section 14).
+                                       // The harness validates each named var
+                                       // exists and is non-empty at admission.
+  map<string, string> labels = 12;     // requestor-owned; mirrored to the lease
+  bool allow_partial = 13;             // a degraded or low-confidence result is
+                                       // acceptable. holden sets false: a ruling
+                                       // is whole or it is not a ruling.
+}
+
+message Payload {
+  oneof body {
+    Messages messages = 1;  // chat-shaped work
+    string   text     = 2;  // a transcript, a diff, a document
+    bytes    raw      = 3;  // audio and other binary stage input
+  }
+}
+message Messages { repeated haho.common.v1.ChatMessage messages = 1; }
+
+// Backend is a descriptor: it names a model seam and how to reach it. The
+// job carries the descriptor; the chute constructs the actual client from
+// it at launch. Lane is not a field — it is derived from kind (metal for
+// MLX, ane for AFM/SPEECH/TRANSLATION, api for the *_COMPATIBLE kinds) and
+// a kind/lane mismatch is therefore impossible to express.
+message Backend {
+  Kind kind = 1;
+  enum Kind {
+    KIND_UNSPECIFIED     = 0;
+    ANTHROPIC_COMPATIBLE = 1; // api lane: claude, deepseek, ...
+    OPENAI_COMPATIBLE    = 2; // api lane: the /api/chat shape; local ollama too
+    AFM                  = 3; // ane lane: Apple Foundation Models, on-device
+    MLX                  = 4; // metal lane: the resident MLX server
+    SPEECH               = 5; // ane lane: SpeechTranscriber
+    TRANSLATION          = 6; // ane lane: on-device machine translation.
+                              // Reserved room below: translation will need
+                              // language-pair and glossary fields.
+  }
+  string base_url = 2;      // api kinds and the MLX server
+  string model = 3;         // where the kind takes one
+  string token_env = 4;     // ENV VAR NAME of the credential; empty = none
+  // params carries backend-specific knobs that are not contract-worthy
+  // (whisper's task=translate, an api's temperature). Keys are defined by
+  // the backend implementation and validated there; the contract
+  // deliberately does not enumerate them.
+  map<string, string> params = 5;
+  reserved 6 to 9;          // TRANSLATION language pairs, future kinds' needs
+}
+
+// Lane is the hardware path (section 4). Derived from Backend.kind;
+// declared here because dispatch (section 10) budgets by lane.
+enum Lane {
+  LANE_UNSPECIFIED = 0;
+  LANE_METAL = 1;
+  LANE_ANE   = 2;
+  LANE_API   = 3;
+  LANE_CPU   = 4;
+}
+
+// Framing: how work is fitted to a model whose coherence window (section 9)
+// may be smaller than the work.
+message Framing {
+  Strategy strategy = 1;
+  enum Strategy {
+    STRATEGY_UNSPECIFIED = 0;
+    WHOLE_OR_ERROR = 1;  // one attempt; a window miss is the requestor's problem
+    RESIZE_ON_FAIL = 2;  // try whole; on a window miss, chunk and continue
+    CHUNK_ALWAYS   = 3;  // never try whole; this is the map of mapesis
+  }
+  Chunker chunker = 2;
+  enum Chunker {
+    CHUNKER_UNSPECIFIED = 0;
+    TOKENS            = 1; // FUTURE: requires a per-backend tokenizer story
+                           // (section 17); do not implement first
+    SENTENCES         = 2;
+    MARKDOWN_SECTIONS = 3; // cut on section boundaries. The full cutting
+                           // rule, including non-markdown input, belongs to
+                           // the chunker implementation (section 9) — the
+                           // contract names the chunker, never its mechanics
+    LINES             = 4;
+  }
+  uint32 chunk_size = 3;             // unit per chunker
+  uint32 chunk_overlap = 4;
+  uint32 max_attempts_per_chunk = 5; // re-read on fail (section 9)
+  Backoff backoff = 6;
+  message Backoff {
+    uint32 initial_ms = 1;
+    double multiplier = 2;
+    uint32 max_ms = 3;
+  }
+}
+
+// The trailing synthesis step over per-chunk results. The contract names
+// the modes; assembly mechanics belong to the implementation (section 9).
+// CONCAT is an ordered join with no model. NONE returns the per-chunk
+// results as-is.
+message Synthesis {
+  Mode mode = 1;
+  enum Mode {
+    MODE_UNSPECIFIED = 0;
+    NONE    = 1;
+    CONCAT  = 2;
+    MAPESIS = 3;
+  }
+  Backend backend = 2;      // MAPESIS only; often a wider window than the map
+  string instruction = 3;   // jinja2 template; this is a prompt, not prose
+}
+
+// Cache: memoization of model calls, shared across chutes and across time.
+// A chute's heap dies with the chute — the point is that the NEXT chute, or
+// tomorrow's re-run, never re-asks the model — so the cache lives in a
+// furnished store, not in the process. Before a chunk is sent to a model,
+// the chute computes key = hash(backend kind, model, model_fingerprint,
+// params, filtered chunk) and asks the store; a hit skips the model call
+// entirely. model_fingerprint keeps an upgraded model from serving stale
+// answers (section 17).
+message Cache {
+  Kind kind = 1;
+  enum Kind {
+    KIND_UNSPECIFIED = 0;
+    NONE      = 1;
+    SURREALDB = 2;  // also the RAG store
+    REDIS     = 3;  // plain hot KV
+    // open set: anything meubilair furnishes can back a cache; new kinds are
+    // additive, never breaking
+  }
+  uint32 ttl_seconds = 2; // 0 = no expiry
+}
+
+message JobEvent {
+  string job_id = 1;
+  google.protobuf.Timestamp at = 2;
+  oneof event {
+    Created   created   = 3; // the status address, once, at admission
+    observability.v1.ServiceHealthHeartbeat heartbeat = 4;
+    Progress  progress  = 5;
+    ChunkMiss chunk_miss = 6; // parallel language to cache_hit: the window
+                              // rejected this attempt (section 9)
+    CacheHit  cache_hit = 7;
+    Degraded  degraded  = 8;
+  }
+  message Created   { string status_addr = 1; }
+  message Progress  { uint32 chunks_done = 1; uint32 chunks_total = 2; string stage = 3; }
+  message ChunkMiss { string reason = 1; bool will_resize = 2; }
+  message CacheHit  { uint32 chunk_index = 1; }
+  message Degraded  { string what = 1; string why = 2; }
+}
+
+message JobCompletion {
+  string job_id = 1;
+  Outcome outcome = 2;
+  enum Outcome {
+    OUTCOME_UNSPECIFIED = 0;
+    PRODUCED     = 1;
+    PARTIAL      = 2; // only ever when the spec set allow_partial
+    reserved 3;       // DROPPED_LATE lived here in drafts; the mesh never
+                      // drops (speedy RFC, section 8)
+    FAILED       = 4; // with a specific reason; never fabricated output
+  }
+  string reason = 3;
+  Payload result = 4;
+  string model_used = 5;   // completions surface model, lane, and statistics —
+  Lane lane_used = 6;      // never the backend descriptor or its references
+  uint32 chunks = 7;
+  uint32 cache_hits = 8;
+  int32 tokens_in = 9;
+  int32 tokens_out = 10;
+  uint64 wall_ms = 11;
+}

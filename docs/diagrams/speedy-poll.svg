@@ -1,0 +1,71 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 940 660" font-family="Menlo, SF Mono, monospace" font-size="12">
+  <defs>
+    <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#444"/>
+    </marker>
+  </defs>
+  <rect x="0" y="0" width="940" height="660" fill="#ffffff"/>
+
+  <!-- the ONE arrow: time -->
+  <line x1="34" y1="70" x2="34" y2="560" stroke="#444" stroke-width="1.2" marker-end="url(#arr)"/>
+  <text x="26" y="60" fill="#888">time</text>
+
+  <!-- lane headers -->
+  <text x="150" y="40" text-anchor="middle" font-weight="bold" fill="#1a1a1a">FSMa (unpack)</text>
+  <text x="380" y="40" text-anchor="middle" font-weight="bold" fill="#1a1a1a">FSMb (transcribe)</text>
+  <text x="610" y="40" text-anchor="middle" font-weight="bold" fill="#1a1a1a">FSMc (smooth/stitch)</text>
+  <text x="840" y="40" text-anchor="middle" font-weight="bold" fill="#1a1a1a">FSMd (script)</text>
+  <line x1="60" y1="50" x2="920" y2="50" stroke="#ddd" stroke-width="1"/>
+
+  <!-- lane separators: lanes never intersect -->
+  <line x1="265" y1="56" x2="265" y2="556" stroke="#eee" stroke-width="1"/>
+  <line x1="495" y1="56" x2="495" y2="556" stroke="#eee" stroke-width="1"/>
+  <line x1="725" y1="56" x2="725" y2="556" stroke="#eee" stroke-width="1"/>
+
+  <!-- FSMa: invoked whenever the operator says go -->
+  <rect x="60" y="80" width="180" height="118" rx="6" fill="#f4f4f1" stroke="#999"/>
+  <text x="70" y="98" fill="#1a1a1a">invoked (poll)</text>
+  <text x="70" y="116" fill="#1a1a1a">check for files</text>
+  <text x="70" y="134" fill="#1a1a1a">gunzip; is tarball?</text>
+  <text x="70" y="152" fill="#1a1a1a">write tar output</text>
+  <text x="70" y="170" fill="#1a1a1a">format bento output</text>
+  <text x="70" y="188" fill="#1a1a1a">exit</text>
+
+  <!-- FSMb: independent; runs when invoked, on whatever is in its input -->
+  <rect x="290" y="150" width="180" height="100" rx="6" fill="#f4f4f1" stroke="#999"/>
+  <text x="300" y="168" fill="#1a1a1a">invoked (poll)</text>
+  <text x="300" y="186" fill="#1a1a1a">look like m4a?</text>
+  <text x="300" y="204" fill="#1a1a1a">transcribe → text</text>
+  <text x="300" y="222" fill="#1a1a1a">complete output</text>
+  <text x="300" y="240" fill="#1a1a1a">exit</text>
+
+  <!-- FSMc first pass -->
+  <rect x="520" y="240" width="180" height="100" rx="6" fill="#f4f4f1" stroke="#999"/>
+  <text x="530" y="258" fill="#1a1a1a">invoked (poll)</text>
+  <text x="530" y="276" fill="#1a1a1a">text needs smoothing</text>
+  <text x="530" y="294" fill="#1a1a1a">smooth</text>
+  <text x="530" y="312" fill="#1a1a1a">write output</text>
+  <text x="530" y="330" fill="#1a1a1a">exit</text>
+
+  <!-- FSMd -->
+  <rect x="750" y="330" width="180" height="100" rx="6" fill="#f4f4f1" stroke="#999"/>
+  <text x="760" y="348" fill="#1a1a1a">invoked (poll)</text>
+  <text x="760" y="366" fill="#1a1a1a">ingest text</text>
+  <text x="760" y="384" fill="#1a1a1a">script + prompt.txt</text>
+  <text x="760" y="402" fill="#1a1a1a">wrap output</text>
+  <text x="760" y="420" fill="#1a1a1a">exit</text>
+
+  <!-- FSMc second pass: content discernment -->
+  <rect x="520" y="420" width="180" height="118" rx="6" fill="#f4f4f1" stroke="#999"/>
+  <text x="530" y="438" fill="#1a1a1a">invoked (poll)</text>
+  <text x="530" y="456" fill="#1a1a1a">are these smoothed?</text>
+  <text x="530" y="474" fill="#1a1a1a">they're smoothed →</text>
+  <text x="530" y="492" fill="#1a1a1a">stitch podcast script</text>
+  <text x="530" y="510" fill="#1a1a1a">render audio</text>
+  <text x="530" y="528" fill="#1a1a1a">wrap output; exit</text>
+
+  <!-- note: no arrows between lanes, on purpose -->
+  <rect x="60" y="570" width="860" height="58" rx="6" fill="#ffffff" stroke="#ccc" stroke-dasharray="4 3"/>
+  <text x="72" y="592" fill="#444">no arrow runs between lanes: the operator moves data from bento to bento off-mesh</text>
+  <text x="72" y="610" fill="#444">(rsync, or asks the next frood to cut a fresh bento). the only arrow is time.</text>
+</svg>

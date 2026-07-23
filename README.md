@@ -1,196 +1,82 @@
 # haho
 
-haho is an LLM harness for the big-little-mesh and delightd projects. It provides a unified interface for running local models (Ollama), Claude (Opus), and DeepSeek, with SurrealDB-backed RAG and response caching.
+haho exposes borg-shaped things to fruit-flavored jobs: typed specs,
+admission control, leases, and bus-carried completions, delivered to
+native macOS processes with the GPU, the Neural Engine, and the OS's warm
+foundation model an arm's reach away. One chute, one jump, one landing.
 
-## Architecture
+This README is the front door, not the reference. The reference is the
+RFC set below.
 
-```
-┌──────────────────────────────────────────────────────────┐
-│                     haho harness                         │
-│                                                          │
-│  ┌─────────┐   ┌──────────┐   ┌───────────┐             │
-│  │  Input   │──▶│  Cache   │──▶│  Model    │             │
-│  │ Filters  │   │  Lookup  │   │ Provider  │             │
-│  │ (RTK)    │   │(SurrealDB)│  │(Ollama/   │             │
-│  └─────────┘   └──────────┘   │ Opus/DS)  │             │
-│                                └───────────┘             │
-│                                     │                    │
-│                               ┌─────▼─────┐             │
-│                               │  Output   │             │
-│                               │ Filters   │             │
-│                               │(passthru/ │             │
-│                               │  logger)  │             │
-│                               └───────────┘             │
-│                                                          │
-│  ┌────────────────────────────────────────┐              │
-│  │  Control Port (HTTP/JSON)              │              │
-│  │  POST /v1/submit  GET /v1/health       │              │
-│  │  GET /v1/config   POST /v1/filters     │              │
-│  └────────────────────────────────────────┘              │
-│                                                          │
-│  ┌────────────────────────────────────────┐              │
-│  │  SurrealDB (k3s-discovered)            │              │
-│  │  - RAG document store                  │              │
-│  │  - Response cache                      │              │
-│  └────────────────────────────────────────┘              │
-└──────────────────────────────────────────────────────────┘
-```
+## The documents
 
-## Quick Start
+The design is a three-document tranche — one vocabulary, one review, one
+ratification; none of the three ratifies alone:
 
-```bash
-# Build
-make build
-
-# The harness authenticates to SurrealDB (2.x denies unauthenticated access)
-# and, if the control port token is set, requires it on the mutating endpoints.
-export SURREAL_CREDENTIALS='root:root'   # user:pass; operator-injected
-export HAHO_CONTROL_TOKEN='...'          # optional; guards /v1/submit and /v1/filters
-
-# Run with default config (local Ollama, SurrealDB on an exposed :8000)
-./bin/haho
-
-# Run with custom config
-./bin/haho -config configs/default.json
-```
-
-Each harness runs in its own container; run as many as you need, all pointed at
-the same SurrealDB via its exposed port (`surrealdb.discovery: "static"`).
-
-## Environment
-
-| Variable | Purpose |
+| Document | What it holds |
 |---|---|
-| `SURREAL_CREDENTIALS` | SurrealDB `user:pass` (name set by `surrealdb.credentials_env`). Falls back to `root/root` with a warning. |
-| `HAHO_CONTROL_TOKEN` | Bearer token required on `POST /v1/submit` and `POST /v1/filters`. Unset = open (logged loudly). |
-| `<model.api_key_env>` | API key for the `opus`/`deepseek` providers. Startup fails loudly if the named var is empty. |
-| `HAHO_K3S_INSECURE=1` | k3s discovery only: skip API-server TLS verification when no CA cert is present (dev). |
+| `docs/haho-rfc.md` | haho itself: the discernment equation, lanes, chutes, hahod, framing, the job contract, and the measurements behind every budget (appendices A–C) |
+| `docs/speedy-rfc.md` | the mesh's recipe semantics — bounded, dialed composition of froods; haho implements speedy for chutes and does not define it |
+| `docs/holden-rfc.md` | holden, haho's first consumer; continues ADR-0003 in janearc/holden, which keeps the decision record |
 
-## Configuration
+Status: DRAFT, under review as a tranche. Ratification by the operator
+and fable marks the files read-only at their paths; from then on the
+ratified set is the reference for the integrity of the project, as is
+the usual convention.
 
-All configuration is JSON. See `configs/default.json` for a complete example.
+## State of the code
 
-```json
-{
-  "listen_addr": ":9090",
-  "model": {
-    "provider": "local|opus|deepseek",
-    "endpoint": "http://localhost:11434",
-    "model_name": "llama3",
-    "api_key_env": "ANTHROPIC_API_KEY"
-  },
-  "surrealdb": {
-    "discovery": "k3s|static",
-    "namespace": "default",
-    "service_name": "surrealdb",
-    "database": "haho",
-    "host": "localhost",
-    "port": 8000
-  },
-  "filters": {
-    "input": [{"name": "rtk", "type": "RTK"}],
-    "output": [{"name": "passthrough", "type": "PASSTHROUGH"}]
-  },
-  "cache": {
-    "enabled": true,
-    "ttl_seconds": 3600
-  }
-}
-```
+Two systems compile here today, deliberately separate:
 
-## API
+**The tranche implementation**, landed ahead of ratification (the RFC set
+is still DRAFT). The `haho.job.v1` contract is transcribed verbatim from
+the RFC's section 8 sketch, generated code is committed (gen-freshness
+holds and is checkable: regenerate == committed), and `bin/hahod` serves
+the RFC's console walkthrough on loopback — sessions, the section 10
+admission table, structured JSON logging, `/health` and `/metrics`. The
+served surface is exactly: api lane, `ANTHROPIC_COMPATIBLE`,
+`WHOLE_OR_ERROR`, synthesis `NONE`, cache `NONE`, no filters. Everything
+else the contract can express is REFUSED at admission, loudly, by name.
 
-Contracts are defined in `proto/` (protobuf). The PoC implements HTTP/JSON.
+Divergences from the RFC, surfaced (each is queued work, none is silent):
 
-| Endpoint | Method | Description |
-|---|---|---|
-| `/v1/submit` | POST | Submit messages for LLM completion (auth; single-flight — returns 429 while busy) |
-| `/v1/health` | GET | Harness health and state |
-| `/v1/config` | GET | Current configuration |
-| `/v1/filters` | POST | Update filter pipelines at runtime (auth; `binary_path` rejected over the wire) |
-| `/v1/metrics`, `/metrics` | GET | Counters (uptime, state, submit totals/busy/errors) |
+- Chutes run in-process inside hahod; the harness process split and the
+  SBPL sandbox are not built.
+- Completions land in hahod's store only; bus publication — the RFC's
+  copy of record — is not built.
+- No JobEvent surface exists; requestors poll `/sessions/{id}`.
+- No session idle TTL: a created-but-never-tasked session is never
+  reaped, and the store is never pruned — the sweeper is future work.
+- No hm leases or heartbeats: the RFC's lease chain (taken at admission,
+  renewed through the descent, released at landing) is unbuilt, and the
+  vendored heartbeat message is carried by the contract but not yet
+  emitted.
+- The task response's status address is hahod's session URL, not a
+  per-chute status port, and the chute's mid-descent status shape does
+  not exist.
+- The session envelope JSON (`new`/`task`/`status` bodies) matches the
+  RFC's console examples but is hand-shaped, not contract messages.
+- Trust model v1: loopback is the trust boundary. Any same-uid process
+  can submit a spec naming any `base_url` and env-var reference — the
+  RFC's worked specs require that freedom — so requestor authentication
+  and a `base_url` allowlist are open operator questions, deliberately
+  not pre-decided in code.
 
-### Health States
+**The pre-RFC proof of concept** (`cmd/haho`, the older `internal/`
+packages): an LLM proxy with a control port, a filter pipeline, model
+providers, and a SurrealDB-backed cache and RAG store. It predates the
+RFC and disagrees with it on purpose-defining points — it calls itself a
+harness (the RFC reserves that word for the per-job scope hahod creates),
+it containerizes (chutes are sandboxed native processes), and it proxies
+models rather than executing jobs. It earned several of the lessons the
+RFC is built on; its retirement is its own diff. Its operational surface
+is deliberately not documented here — it lives in this file's git
+history, so this README never describes two systems' knobs at once.
 
-| State | Description |
-|---|---|
-| `idle` | Ready for work |
-| `busy` | Processing a request |
-| `waiting_subprocess` | Waiting on model (child process) |
-| `waiting_input` | Blocked on user/upstream input |
-
-### Example: Submit
-
-```bash
-curl -X POST http://localhost:9090/v1/submit \
-  -H 'Content-Type: application/json' \
-  -d '{"messages": [{"role": "user", "content": "hello"}]}'
-```
-
-### Example: Health Check
-
-```bash
-curl http://localhost:9090/v1/health
-```
-
-## Filter Pipeline
-
-Input and output filters are composable and configurable at startup (JSON) or runtime (API).
-
-| Filter | Type | Description |
-|---|---|---|
-| RTK | Input (default) | Pipes through `rtk` CLI for context filtering/summarization |
-| Passthrough | Output (default) | No-op, passes messages through unchanged |
-| Logger | Output | Logs all messages to stderr (or custom writer) |
-
-## Model Providers
-
-| Provider | Backend | Default Endpoint |
-|---|---|---|
-| `local` | Ollama `/api/chat` | `http://localhost:11434` |
-| `opus` | Anthropic Messages API | `https://api.anthropic.com` |
-| `deepseek` | OpenAI-compatible API | `https://api.deepseek.com` |
-
-## SurrealDB
-
-SurrealDB (2.x) is reached over its HTTP `/sql` API. The default deployment
-connects statically to an exposed port (`discovery: "static"`, `host` + `port`);
-k3s service discovery stays available for in-cluster runs (`discovery: "k3s"`).
-All user-supplied values are bound as query variables, never interpolated into
-SurrealQL. Used for:
-- **RAG**: BM25 full-text search over indexed documents. The analyzer and search
-  index are created at startup (`EnsureSchema`); search is disabled with a
-  warning until they exist.
-- **Cache**: Response caching with a real per-entry expiry (`cache.ttl_seconds`)
-  to avoid redundant LLM calls.
-
-## Testing
-
-```bash
-# All tests
-make test
-
-# Unit tests only
-make test-unit
-
-# Integration tests
-make test-integration
-```
-
-## Project Structure
-
-```
-cmd/haho/          CLI entry point
-proto/             Protobuf contracts
-configs/           Default configuration
-internal/
-  config/          JSON config loading
-  filter/          Input/output filter pipeline
-  model/           LLM provider interface + implementations
-  discovery/       k3s service discovery
-  rag/             RAG store + cache (SurrealDB)
-  health/          Health state tracking
-  harness/         Core orchestrator
-  server/          HTTP/JSON control server
-test/integration/  Integration tests
-```
+- Contracts: `proto/` (buf v2); consumers vendor-generate, gen-freshness
+  holds.
+- Build and test: `make build`, `make test`.
+- The RFC's measurements will be re-runnable: `haho bench` is designed to
+  ship with haho (RFC section 15) so the numbers the design leans on can
+  be re-grounded on new hardware and OS builds instead of fossilizing.
+  Today the appendices' inline probes are what is re-runnable.
