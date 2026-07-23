@@ -10,9 +10,9 @@ syntax = "proto3";
 
 package observability.v1;
 
-option go_package = "github.com/janearc/haho/gen/observabilitypb;observabilitypb";
-
 import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/janearc/haho/gen/observabilitypb;observabilitypb";
 
 // HealthState is the fleet-wide health classification shared by service
 // heartbeats, fleet rollups, and quota runway.

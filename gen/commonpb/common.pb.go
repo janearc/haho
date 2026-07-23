@@ -22,8 +22,9 @@ const (
 )
 
 // ChatMessage is a single chat message. It is the one canonical message type
-// shared across the harness API, the model calls, and the filter pipeline, so
-// role/content/metadata mean the same thing everywhere.
+// shared across the harness API, the model calls, the filter pipeline, and
+// the haho.job.v1 payloads, so role/content/metadata mean the same thing
+// everywhere.
 type ChatMessage struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Role          string                 `protobuf:"bytes,1,opt,name=role,proto3" json:"role,omitempty"`
