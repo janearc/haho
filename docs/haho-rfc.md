@@ -135,7 +135,7 @@ fit for cutting audio into segments and unfit for a permanent record.
 `value` is the requestor's, and it may decay with arrival time — a
 placement too slow to be useful prices itself out through the value term,
 never through enforcement of haho's: the mesh makes no velocity promises
-(speedy RFC, section 9), and haho is mesh.
+(speedy RFC, section 8), and haho is mesh.
 
 Choosing a placement by this equation is **discernment**. Discernment is the
 combination of dispatch, orchestration, and scheduling: given a job, decide
@@ -597,7 +597,7 @@ message JobSpec {
   haho.filter.v1.FilterPipelineConfig input_filters = 8;
   haho.filter.v1.FilterPipelineConfig output_filters = 9;
   reserved 10; // a Deadline lived here in drafts; the mesh makes no
-               // velocity promises (speedy RFC, section 9)
+               // velocity promises (speedy RFC, section 8)
   map<string, string> secret_env = 11; // logical name -> ENV VAR NAME.
                                        // References, never values (section 14).
                                        // The harness validates each named var
@@ -772,7 +772,7 @@ message JobCompletion {
     PRODUCED     = 1;
     PARTIAL      = 2; // only ever when the spec set allow_partial
     reserved 3;       // DROPPED_LATE lived here in drafts; the mesh never
-                      // drops (speedy RFC, section 9)
+                      // drops (speedy RFC, section 8)
     FAILED       = 4; // with a specific reason; never fabricated output
   }
   string reason = 3;
@@ -876,7 +876,7 @@ transcription hop is one more spec, not a special case: `backend {kind:
 MLX, model: "whisper-large-v3", params {task: "translate"}}`, payload
 `raw` audio, framing `WHOLE_OR_ERROR` (the client cut the segment to size
 before sending it). Rendering and delivery — including what a late
-segment means — belong to the terminus renderer (speedy RFC, section 12).
+segment means — belong to the terminus renderer (speedy RFC, section 11).
 
 Pluggability is exactly the enum surfaces: backends, chunkers, synthesis
 modes, cache kinds, filters. Each is a Go interface with a registry behind
@@ -1029,7 +1029,7 @@ the excess simply waits — so a queued job's expected start is queue-depth
 times the measured service time, exact arithmetic instead of a guess. A
 requestor whose value decays with time can read that arithmetic before
 submitting; haho states it and enforces nothing about it, because the
-mesh makes no velocity promises (speedy RFC, section 9). It is an
+mesh makes no velocity promises (speedy RFC, section 8). It is an
 *AFM-door* property, not an ane-lane property. Speech's door is genuinely
 concurrent (Appendix C: three heavy transcriptions at ~20% per-job cost,
 wall at 0.42 of serial), so it takes an ordinary budget check, shipped at

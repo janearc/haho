@@ -85,9 +85,12 @@ host.
 
 ## 4. holden and speedy: a ruling is not speedy work
 
-An earlier draft called rulings "speedy's null case." That framing was
-wrong, and the correction is worth stating precisely because it defends
-both designs' edges:
+The dependency between these designs points the way history points: haho
+exists because holden needed a harness — service-izing the judge is what
+forced a job surface into existence. speedy came along because building
+haho opened the door to cut the mesh's composition semantics properly,
+and there was no reason to wait. Nothing about a ruling asks for
+composition, and the boundary is sharp:
 
 - **No recipe.** Nothing composes into a ruling and nothing composes out
   of one. A ruling is not a step in any itinerary; no frood's output ever
@@ -124,10 +127,22 @@ consumer impact with file:line evidence, `doc_content_agreement` — the
 proto authoritative once this lands, serialized as JSON at rest and on any
 human-facing surface. `RulingEvent` covers the lifecycle: RECEIVED,
 INPUTS_ASSEMBLED, JUDGE_SPAWNED, VERDICT, REFUSED_RETRY, PUBLISHED,
-FAILED. Consumers vendor-generate, per mesh practice. Bus emission
-(kafka) is explicitly a later seam — kafka-svc owns bus contracts, and
-wiring holden into the bus is a separate decision this document names
-rather than smuggles.
+FAILED. Consumers vendor-generate, per mesh practice. Bus emission is
+explicitly a later seam — wiring holden into the bus is a separate
+decision this document names rather than smuggles. The seam's landlords
+are already settled: the brokers are delightd furniture
+(`meubilair.yaml`), and the event contracts live in the fleet's
+event-contract home (today the kafka-logging repo). When ruling events
+ride the bus, holden's part is only the emitting.
+
+holden's argument is deliberately thin: a diff ref — repo, PR number,
+head sha — and nothing else arrives from the requestor. Everything else
+the judge sees is *assembled* by holden: the diff, the design docs, the
+ruling ledger, the consumer scan. That bundle is exactly the shape of a
+bento, and holden records it as one — inert, manifested, replayable — so
+a disputed ruling can be re-run as an experiment: same bundle, fresh
+judge. The bundle bento is a record, not a transport: it rides no bus,
+no frood consumes it, and the frood law is not implicated.
 
 **Outbound — the haho job contract (`haho.job.v1`), owned by haho.**
 holden is a haho requestor, and deliberately the simplest one haho's RFC
@@ -153,10 +168,18 @@ budgets are hahod's, and holden holds no dispatch logic at all. Nor is
 haho holden-exclusive — anything on the mesh with model work submits
 under the same contract; holden assumes nothing about being alone.
 
-Which model answers, and how the chute executes, is haho's business and
-invisible to holden; haho defines itself in its own RFC, not here. The
-current `spawn.rs` claude-CLI subprocess survives only as the pre-haho
-shim, until hahod serves.
+The model is holden's choice, pinned in the spec: discernment is external
+in haho v1 — the requestor writes the backend and model into the JobSpec —
+so holden names its judge exactly as `--model` does today. How the chute
+*executes* — lane, sandbox, placement — is haho's business. A ruling's
+placement never degrades, never falls back, never chunks, never mapesis:
+the spec is `WHOLE_OR_ERROR`, and hahod either admits it or REFUSES it,
+loudly, before any judgment is in flight. That refusal is also holden's
+feasibility proof, mechanically: a green `hahod_reachable` (section 6)
+means a ruling can be placed now, not that one will be improvised. haho
+defines itself in its own RFC, not here; the current `spawn.rs`
+claude-CLI subprocess survives only as the pre-haho shim, until hahod
+serves.
 
 holden assesses; haho furnishes. holden never defines a model contract,
 and haho never learns what a ruling is: holden validates the completion
@@ -212,9 +235,12 @@ demonstrated, this design is not done, whatever the coverage number says.
 
 - sprints issue 52: judge non-determinism (a required field dropped twice
   on a 1686-line diff, clean on respawn). Service-ization makes retries
-  and validation observable, which should make this bug diagnosable; it
-  does not fix it by itself.
-- Bus emission of ruling events (kafka-svc seam, later pilot).
+  and validation observable, and the bundle bento (section 5) is the
+  replay artifact for exactly this diagnosis; neither fixes the bug by
+  itself.
+- Bus emission of ruling events (a later pilot; the brokers are delightd
+  furniture, and the event contract belongs in the fleet's event-contract
+  home — today the kafka-logging repo).
 - Where the ledger lives long-term. Today it stays in the sprints repo;
   the destination is decided — it must be surrealdb — and the move gets
   its own ADR once the RAG layer exists.
@@ -226,7 +252,7 @@ model seam is swappable without touching holden; the judge — which
 currently guards all the production repos — finally has a health surface
 of its own; the laptop-path era ends.
 
-**Paid.** Two contract surfaces to keep gen-fresh; a daemon to run and
+**Cost.** Two contract surfaces to keep gen-fresh; a daemon to run and
 watch where a CLI used to suffice; haho's ratification and proofs now sit
 on holden's critical path; the CLI-only escape hatch must keep working
 through the transition, which is a real maintenance tax. The price of

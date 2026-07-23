@@ -25,26 +25,17 @@
 rides the data. "Only bus" reads the same way: one shared medium, no side
 channels.
 
-## 1. The frood law
+## 1. speedy bends the frood law
 
-Work enters the mesh only from outside it. The operator says: hey frood, go
-do some work, look at /path/to/your/stuff — and the frood, which was hanging
-out waiting to be asked, does one pass of strictly local work and exits. A
-frood's output MUST NOT cause another frood to do work. That is the law, and
-the bento is its enforcement: the atomicity barrier between one machine's
-work and the next. A bento is like a pipe with richer context — a pipe is
-one-dimensional, a bento can be a terabyte with a manifest — but the
-property that matters is that a bento is *inert*. It sits in a directory. It
-causes nothing.
-
-The law exists because the mesh is a machine made of machines, and when the
-machines start invoking the machines, very unexpected things happen. Every
-frood keeps its internal states to itself; nothing exceeds its local scope;
-and therefore you can put mathematical boundaries on what happens when you
-write data into a directory. Give up the law and you give up the
-boundaries.
-
-## 2. speedy bends the law
+The frood law is the mesh's ground rule: work enters the mesh only from
+outside it. A frood does one pass of strictly local work and exits, and
+its output MUST NOT cause another frood to do work; the bento — inert,
+sitting in a directory, causing nothing — is the enforcement, the
+atomicity barrier between one machine's work and the next. The law exists
+because the mesh is a machine made of machines, and when the machines
+start invoking the machines, very unexpected things happen: keep every
+frood's states local and you can put mathematical boundaries on what
+happens when you write data into a directory.
 
 speedy asks: what if a frood's output causing another frood to work is a
 feature? The mesh is an inherently decomposed lattice of machines, each
@@ -57,8 +48,8 @@ decomposed thing can be recomposed:
 This is not a large addition to the mesh. speedy breaks the regular-frood
 assumption — output that causes work — but only within bounds the frood
 contract has carried since its first cut: the hop bound, the convergence
-cap, the banchan (section 3). This document explains that bending and
-restates the contract's bounds as obligations (section 7). Bounds are the
+cap, the banchan (section 2). This document explains that bending and
+restates the contract's bounds as obligations (section 6). Bounds are the
 mechanism, rather than proofs, because of the halting problem: there is no
 general way to show that a set of state-calls terminates, saturates
 nothing, and fills no disk. The contract does not try; it bounds.
@@ -70,9 +61,9 @@ to the opposite extreme: only the operator causes work, and nothing
 composes. Recipes are external, explicit, inspectable, bounded
 composition. The smoothing frood never learns that a podcast exists; the
 operator holds the program in one hand, because the program is a document
-(section 6 shows it — a file you can physically hold).
+(section 5 shows it — a file you can physically hold).
 
-## 3. What the protocol already carries
+## 2. What the protocol already carries
 
 speedy was always a possibility: the itinerary and the hop bound were
 declared at the protocol's first cut, and the contract header reserves the
@@ -95,7 +86,7 @@ exist, verbatim, in `bento/v1/composition.proto`:
   that spiraled. Prevention without attribution leaves nothing to fix.[^2]
 - **`Convergence`** — the one sanctioned cycle: an `acceptance` check and
   `max_passes`. A bento that reaches the bound without acceptance goes
-  PARTIAL or FAILED, loudly; it is never looped past the bound. Section 6
+  PARTIAL or FAILED, loudly; it is never looped past the bound. Section 5
   states how passes and hops share one purse.
 - **`banchan`** — the irreducible element of a bento's batch[^3]. When
   speedy moves a flow in pieces, the pieces are banchans; the protocol
@@ -110,7 +101,7 @@ in a diff and held by the gen-freshness gate, never a config edit or a
 proto field. The proto's job is to carry the bound; the gen's job is to
 set it.
 
-## 4. Not streaming: the packet model
+## 3. Not streaming: the packet model
 
 speedy is called speedy and not realtime because it is not streaming.
 speedy is a system of packets:
@@ -142,7 +133,7 @@ FSMa[state_final] -> FSMb[state_start] ... FSMb[state_final] -> FSMc[state_start
 
 Who is the client? The question has no referent.
 
-## 5. Dialing, and the has_a shift
+## 4. Dialing, and the has_a shift
 
 A classic frood waits for the operator. It polls its inbox; its shape is:
 
@@ -173,7 +164,7 @@ advanced by each frood in turn. The recipe owns the endpoints; each frood
 owns nothing but its turn — one **step** of the itinerary. Nothing returns
 — there is nothing to return *to* — and the result exists exactly once, at
 completion, when the final step ends and the working directory is
-published as end data (section 12).
+published as end data (section 11).
 
 The functional name for this shape is continuation-passing style, with one
 sharpening that keeps the fracture honest: the working directory is the
@@ -181,15 +172,15 @@ sharpening that keeps the fracture honest: the working directory is the
 steps of a recipe do share state — the data they operate on — and shared
 state between machines is precisely what classic frood does not have. That
 shared heap is the primary fracture against frood, and the terms in
-section 7 are its containment.
+section 6 are its containment.
 
 A step does not end by dialing; it ends by calling **`release`**, a
 primitive generated with the contract code — the same place the ceiling
-lives (section 3). `release` consults the itinerary, resolves the next
+lives (section 2). `release` consults the itinerary, resolves the next
 capability by discovery, dials the resolved frood with the heap's path and
 the decremented bound — or publishes end data at the terminus — and exits.
 `release` is the only way a turn ends, and the terminal `release` is the
-only way a scope ends (section 13). The mechanical truth underneath is
+only way a scope ends (section 12). The mechanical truth underneath is
 that the dial fires while the releasing process is still alive, because a
 process that has exited cannot dial; the brief overlap this forces at
 every seam is where the pipeline's concurrency comes from. But no frood
@@ -227,7 +218,7 @@ Three mechanics, precisely:
 Why kafka and not amqp: dialing needs named, durable addressability with
 many listeners, and the log doubles as the itinerary's witness — what was
 dialed, when, by whom, is on the bus record without any additional
-machinery (section 14). (The composition surface's larger intent-transport
+machinery (section 13). (The composition surface's larger intent-transport
 ruling — bus versus dataprovider — stays open[^2] and is not implicated
 here: dialing requires the bus by construction, and the dialing signal is
 the only transport this document binds.)
@@ -237,13 +228,7 @@ floor of hops × poll-interval no matter how fast the silicon is — the
 polling is the slow part. Dialing deletes that floor; the wake-up becomes
 a bus message, and the floor drops to hops × bus-latency.
 
-Because speedy froods are addressable machines on the mesh, the same
-recipe could in principle run as separate daemons or as states within one
-monolithic process. In reality they are processes; the point is that the
-*recipe* is the program, not the process boundary. The mesh, because it is
-decomposed, can be recomposed in different ways.
-
-## 6. The recipe, specifically
+## 5. The recipe, specifically
 
 Everything so far says what a recipe does. This section says what one
 *is*, because the previous revision never put a recipe on the page and a
@@ -254,7 +239,7 @@ A recipe exists in three forms, and only one of them is written by hand:
 1. **Authored.** A yml file the operator writes. This is the same
    convention the mesh already uses for declared things (`meubilair.yaml`
    furnishes the fleet; haho jobs are tasked from `job.yml`), and it is
-   the form section 2 means by "the program is a document."
+   the form section 1 means by "the program is a document."
 2. **Marshaled.** The minting tool validates the authored file and
    marshals it into `bento.v1.Recipe` — protobuf, the contract, the form
    in which the recipe is checkable against the gen. On any wire and at
@@ -277,7 +262,7 @@ itinerary anyway. The wire enforces the dial; the gen enforces the verbs;
 the hash enforces the program. The bus carries signals, not programs.
 
 The authored form, worked — this is `recipe_X` from the example the rest
-of this document keeps drawing (section 11), the memos-to-podcast chain.
+of this document keeps drawing (section 10), the memos-to-podcast chain.
 Contract subjects are illustrative; capabilities and the convergence shape
 are exact:
 
@@ -324,9 +309,9 @@ Reading it against the contract, field by field:
   any *particular* run works on is the input bento's own manifest —
   finite, declared, and complete before the intent exists, because a
   bento is inert and bento-or-invisible held at the origin like
-  everywhere else. Section 9 leans on this.
+  everywhere else. Section 8 leans on this.
 - **`hop_bound` is not authored.** The minting tool stamps it from the
-  generated ceiling (section 3). An operator does not choose a bound per
+  generated ceiling (section 2). An operator does not choose a bound per
   recipe; the mesh has one ceiling, held in the gen.
 
 The hop arithmetic, in one place. Every dial derives an intent and
@@ -345,16 +330,16 @@ the recipe was impossible as authored, and it fails at the operator's
 desk instead of mid-flight on hop 10.
 
 Minting, then, is exactly this sequence, and it is the operator's act
-(section 7, term 1): validate the authored file against the contract and
+(section 6, term 1): validate the authored file against the contract and
 the arithmetic; allocate the working directory; seal the marshaled recipe
 into it; deposit the input bento; stamp `intent_id`, `recipe_id` (the
 hash), and `hop_bound` (the ceiling); submit the intent. Where the minting
-tool lives is an open question (section 17); what it does is not.
+tool lives is an open question (section 16); what it does is not.
 
-## 7. The terms
+## 6. The terms
 
 The terms begin at minting, and minting is in scope of this document:
-there is no speedy without the recipe defined (section 6). Every term
+there is no speedy without the recipe defined (section 5). Every term
 bounds the thing the halting problem says cannot be proven. These are the
 conditions under which the frood law bends, and they are MUSTs:
 
@@ -364,16 +349,16 @@ conditions under which the frood law bends, and they are MUSTs:
    A step MUST NOT add, reorder, or substitute steps — no runtime
    itinerary growth, ever. The mesh does not program itself: the gen
    gives a step no verb that could, and the recipe hash catches what a
-   scribbled heap might try (section 6).
+   scribbled heap might try (section 5).
 2. **Recipes are linear.** Branching is ruled out by name: once a recipe
    can fan out, there is no way to bound saturation of the one node this
    mesh lives on, or its disk. Parallelism comes from many linear intents
-   in flight (section 10), never from one intent becoming several.
+   in flight (section 9), never from one intent becoming several.
    Fan-out MAY be performed *internally* to a speedy frood — local states
    are invisible and bounded by their process — but it is inappropriate
    for a speedy frood to dial itself to accomplish fan-out. The one
    sanctioned cycle is `Convergence.max_passes`, judged by its acceptance
-   check, spending from the same hop purse as everything else (section 6).
+   check, spending from the same hop purse as everything else (section 5).
 3. **The itinerary never exceeds the maximum.** A set — the word is
    deliberate; itineraries do not revisit, except through convergence —
    of state-calls is bounded by `hop_bound`, decremented at every
@@ -385,7 +370,7 @@ conditions under which the frood law bends, and they are MUSTs:
    that would reveal it has not happened.
 5. **The itinerary is the trace.** What has been done and where we have
    been ride with the work (`parent_intent_id` chains; the bus log
-   witnesses the dials, section 14). When something spirals, the chain
+   witnesses the dials, section 13). When something spirals, the chain
    names whose recipe to repair.
 6. **Froodiness is transitive, and it is checked at the gate, not at
    runtime.** If something is admitted to the mesh, it passed the CI
@@ -394,11 +379,11 @@ conditions under which the frood law bends, and they are MUSTs:
    where it is a compile failure instead of an incident. hm is the
    backstop: misbehave at runtime and hm takes your lease.
 
-## 8. Failure and resume
+## 7. Failure and resume
 
 Nothing new is invented for recovery; the existing laws compose.
 
-A frood that dies mid-step is marked by its lapsed hm lease (section 13).
+A frood that dies mid-step is marked by its lapsed hm lease (section 12).
 Re-dialing the failed step is safe because froods discern applicability
 from the artifact — "are these smoothed?" — so a re-invoked frood looks at
 the heap and resumes from what is actually there, not from a
@@ -407,7 +392,7 @@ guarantees the previous step's work is either sealed or invisible, so the
 re-dialed frood never sees a half-truth. Host-side residue (a dead
 process's scratch) is the sweeper's job, per haho's RFC.
 
-## 9. "Behind" is the only degradation
+## 8. "Behind" is the only degradation
 
 The mesh never drops. A frood does not tolerate a drop at any point. When
 the mesh is slower than its input, the flow is *behind*, and behind is
@@ -416,7 +401,7 @@ stated plainly rather than dressed as failure.
 Behind is bounded, and the bounds are already on the page. Queue growth is
 bounded three ways: at the front by the input bento's manifest — what was
 deposited is finite, declared, and complete before the intent exists
-(section 6) — in the middle by `hop_bound` (no amplification), at the back
+(section 5) — in the middle by `hop_bound` (no amplification), at the back
 by bus retention. The mesh is not fixed to cameras and capture: the
 operator puts anything into the mesh he chooses — ambient picture
 generation, near-real-time language interpretation, a tarball of memos —
@@ -429,12 +414,12 @@ is an instance, not the premise.
 How fast the product needed to arrive is not the mesh's concern. Velocity
 requirements belong to the client at the edge: the mesh moves every piece
 it was given and never discards one, and what a late piece *means* is
-decided where the product is rendered (section 12). There is no deadline
+decided where the product is rendered (section 11). There is no deadline
 anywhere in these semantics, on purpose — a deadline is a promise about
 the future, and the mesh only makes promises about what it has already
 done.
 
-## 10. Faster than realtime
+## 9. Faster than realtime
 
 > "Never underestimate the bandwidth of a station wagon full of tapes
 > hurtling down the highway."
@@ -461,10 +446,10 @@ Parallelism is many linear intents in flight; one intent never becomes
 several (term 2). The overlap in the worked example below is successive
 bentos pipelining through the same states.
 
-## 11. The worked example
+## 10. The worked example
 
 The chain: unpack a tarball of voice memos, transcribe, smooth, stitch a
-podcast script and render its audio — `recipe_X` of section 6. First, the
+podcast script and render its audio — `recipe_X` of section 5. First, the
 classic frood world — four froods, each with `{input, output}`, each
 invoked by the operator, polling. The lanes are independent and never
 intersect: classic frood has one arrow, and it is time. Data moves between
@@ -472,7 +457,7 @@ lanes only when the operator moves it — rsync, or asking the next frood to
 cut a fresh bento — and that movement is off-mesh, so the picture cannot
 honestly draw it as an arrow. FSMc appears twice: the same frood,
 re-invoked, branching on what it finds — which is the by-hand version of
-exactly what `Convergence` declares (section 6).
+exactly what `Convergence` declares (section 5).
 
 ![The classic frood world: four independent polling lanes; the only arrow
 is time; FSMc invoked twice](diagrams/speedy-poll.svg)
@@ -490,7 +475,7 @@ reference; W2 pipelines behind W through the same states. The operator
 mints the recipe and receives the end data; everything between is
 release.
 
-## 12. The terminus
+## 11. The terminus
 
 The final step's `release` has no next capability to resolve, so it
 publishes instead of dialing — and publication is the scope's only exit
@@ -505,7 +490,7 @@ into the world:
 3. The completion record rides the bus — the scope's landing, the durable
    fact that recipe_X over intent W produced end data at this path. The
    bus copy is the copy of record, exactly as haho completions work.
-4. The process exits, and the scope ends (section 13).
+4. The process exits, and the scope ends (section 12).
 
 Everything after publication is **edge software**: a renderer — a podcast
 feed, mackerel's scrolling transcript, a wall display — reads published
@@ -520,7 +505,7 @@ The terminus is also where *behind* stops being an adjective and becomes a
 number, so the receipts live here:
 
 - **On the completion record** (mesh-side, per intent): mint-to-publish
-  wall time; per-step wall times as witnessed by the dials (section 14);
+  wall time; per-step wall times as witnessed by the dials (section 13);
   convergence passes consumed versus allowed; hops consumed versus
   stamped.
 - **On the renderer** (edge-side, ordinary `/metrics` per fleet rule):
@@ -532,7 +517,7 @@ None of this is mesh semantics — the mesh does not know what "late" means
 on a dashboard without anyone grepping a log. The numbers are receipts,
 not promises.
 
-## 13. Scope
+## 12. Scope
 
 A **scope** is everything done under one intent: one heap's journey from
 start data to end data, mint to publish. The word deliberately does
@@ -557,9 +542,9 @@ hm mirrors host-side flights as leases, and the reaping rule reads the
 same at both levels: heartbeats begin when there is tasking; no tasking,
 no heartbeats; no heartbeats, no lease renewal; no renewal, reaped. A
 scope that is not working is not alive, and hm reaps what is not alive.
-This is the lease chain section 8 leans on for failure marking.
+This is the lease chain section 7 leans on for failure marking.
 
-## 14. Observability
+## 13. Observability
 
 The bus log is the itinerary's witness, and that sentence has concrete
 receipts:
@@ -572,14 +557,14 @@ receipts:
   derived intent walks back to the root and names the recipe and
   submitter. When a bound trips, the chain says whose program to repair
   (term 5).
-- **The completion record is the landing** (section 12): one durable fact
+- **The completion record is the landing** (section 11): one durable fact
   per scope, on the bus, carrying the receipts.
-- **Liveness is the lease chain** (section 13): a step in flight is a
+- **Liveness is the lease chain** (section 12): a step in flight is a
   renewed lease; a lapsed lease without a landing is the alarm, on a
   dashboard, by construction.
 - **Post-hoc, the heap itself**: sealed step by step (term 4), it is the
   physical audit trail of what each capability actually did — and the
-  sealed recipe pins what the program was (section 6).
+  sealed recipe pins what the program was (section 5).
 
 What the operator watches mid-recipe is therefore: the dial topic for
 motion, the leases for liveness, the completion for the landing. Anything
@@ -587,7 +572,7 @@ model-shaped inside a step additionally carries haho's full observability
 (events, status endpoint, chute leases) per haho's RFC section 13 — that
 machinery is referenced here, not restated.
 
-## 15. haho
+## 14. haho
 
 A speedy frood does not require haho. speedy is a property of the mesh —
 any froody frood can be dialed, advance the heap, and release. haho
@@ -596,19 +581,19 @@ the frood that executes it is a haho chute, and haho's admission, lanes,
 and framing apply to that step's interior. haho consumes this document's
 semantics; it does not define them, and nothing here depends on it.
 
-## 16. What speedy is not
+## 15. What speedy is not
 
 - **Not streaming.** A system of packets with a bounded itinerary, not a
-  persistent socket (section 4).
+  persistent socket (section 3).
 - **Not client/server.** Origin, terminus, and a bounded number of states
-  between (section 4).
+  between (section 3).
 - **Not orchestrated — self-orchestrating.** The coordination is the
   itinerary, riding the data, executed one dial at a time. There is no
   orchestrator node to build, deploy, or misuse. (mackerel's held
   question — whether a converging coordinator is a misuse of the mesh —
   dissolves: there is no coordinator; convergence is `max_passes`,
   authored at minting.)
-- **Not branching.** Ruled out by name, per the terms (section 7).
+- **Not branching.** Ruled out by name, per the terms (section 6).
 - **Not a delivery-guarantee change.** The bus stays what it is; intents
   stay idempotent by `intent_id`.
 - **Not a velocity promise.** No deadline exists in these semantics; how
@@ -619,7 +604,7 @@ semantics; it does not define them, and nothing here depends on it.
   batcher/chunker underneath depositing bento-shaped work. It may serve
   as a case study for speedy someday; it is out of scope here.
 
-## 17. Open questions
+## 16. Open questions
 
 - **Dial authorization.** Transitive froodiness admits a frood to the
   mesh; whether *any* froody frood may dial *any* addressable name, or
