@@ -151,6 +151,51 @@ func TestConstructorRefusesBareDescriptor(t *testing.T) {
 	}
 }
 
+func TestParamsApplyAndValidate(t *testing.T) {
+	srv, seen := stub(t, http.StatusOK, okResponse)
+	spec := specFor(srv.URL)
+	spec.Backend.Params = map[string]string{"max_tokens": "512", "timeout_s": "10"}
+	b, err := New(spec)
+	if err != nil {
+		t.Fatalf("construct with valid params: %v", err)
+	}
+	if _, err := b.Run(context.Background(), spec); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if got := (*seen)["max_tokens"].(float64); got != 512 {
+		t.Fatalf("max_tokens = %v, want 512", got)
+	}
+
+	for _, bad := range []map[string]string{
+		{"max_tokens": "many"},
+		{"max_tokens": "0"},
+		{"timeout_s": "-1"},
+	} {
+		spec := specFor(srv.URL)
+		spec.Backend.Params = bad
+		if _, err := New(spec); err == nil {
+			t.Fatalf("params %v must refuse construction", bad)
+		}
+	}
+}
+
+func TestErrorBodyIsTruncated(t *testing.T) {
+	long := strings.Repeat("x", 4096)
+	srv, _ := stub(t, http.StatusInternalServerError, long)
+	spec := specFor(srv.URL)
+	b, err := New(spec)
+	if err != nil {
+		t.Fatalf("construct: %v", err)
+	}
+	_, err = b.Run(context.Background(), spec)
+	if err == nil {
+		t.Fatal("non-2xx must error")
+	}
+	if len(err.Error()) > 1024 {
+		t.Fatalf("error length %d; a misbehaving endpoint must not stuff the record", len(err.Error()))
+	}
+}
+
 func TestRegistryRefusesUnknownKind(t *testing.T) {
 	spec := specFor("http://127.0.0.1:1")
 	spec.Backend.Kind = jobpb.Backend_MLX
