@@ -1,0 +1,14 @@
+{
+  "jobId": "hello-world-1",
+  "payload": {"text": "Say hello to the mesh in one sentence."},
+  "backend": {
+    "kind": "ANTHROPIC_COMPATIBLE",
+    "baseUrl": "https://api.anthropic.com",
+    "model": "claude-haiku-4-5-20251001",
+    "tokenEnv": "HOLDEN_ANTHROPIC_KEY"
+  },
+  "framing": {"strategy": "WHOLE_OR_ERROR"},
+  "synthesis": {"mode": "NONE"},
+  "cache": {"kind": "NONE"},
+  "allowPartial": false
+}

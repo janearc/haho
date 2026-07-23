@@ -73,6 +73,44 @@ RFC is built on; its retirement is its own diff. Its operational surface
 is deliberately not documented here — it lives in this file's git
 history, so this README never describes two systems' knobs at once.
 
+## Running hahod
+
+hahod runs as a launchd user agent — started and stopped like any other
+daemon on the host:
+
+```
+make daemon-up       # build, render deploy/com.janearc.hahod.plist.in, bootstrap
+make daemon-down     # SIGTERM via bootout: drain-and-land, then exit
+make daemon-status   # launchd state + /health
+```
+
+Logs are structured JSON at `~/.local/state/haho/log/hahod.log`; the
+store is `~/.local/state/haho/hahod.db`. The daemon serves loopback only
+(`127.0.0.1:8790` by default; `HAHOD_ADDR`/`HAHOD_STORE` or flags
+override). Stopping is graceful by construction: the listener stops,
+in-flight jobs land (FAILED with the cancellation as reason if they
+cannot finish), queued jobs land FAILED without running, and only then
+does the store close. A crash instead of a stop is converged at the next
+boot: the recovery sweep lands any orphaned row FAILED, loudly, before
+serving — and launchd's KeepAlive restarts a crashed daemon, which that
+sweep makes safe.
+
+The hello world, once a credential is in the daemon's environment:
+
+```
+launchctl setenv HOLDEN_ANTHROPIC_KEY <value>   # operator, by hand; no file
+make daemon-down daemon-up                       # env reads at spawn
+SID=$(curl -sX POST 127.0.0.1:8790/sessions | jq -r .id)
+curl -sX POST 127.0.0.1:8790/sessions/$SID/task -d @deploy/hello-world.json
+curl -s 127.0.0.1:8790/sessions/$SID              # poll: in_flight, disposition
+curl -s 127.0.0.1:8790/sessions/$SID/completion   # the landed JobCompletion
+```
+
+Without the credential, the same task is REFUSED at admission with
+`secret_env_missing` naming the var — loud, spending nothing, value in
+no file. A durable secrets story for the supervised daemon (beyond
+`launchctl setenv` by hand) is deliberately deferred work.
+
 - Contracts: `proto/` (buf v2); consumers vendor-generate, gen-freshness
   holds.
 - Build and test: `make build`, `make test`.
