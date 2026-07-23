@@ -95,11 +95,14 @@ boot: the recovery sweep lands any orphaned row FAILED, loudly, before
 serving — and launchd's KeepAlive restarts a crashed daemon, which that
 sweep makes safe.
 
-The hello world, once a credential is in the daemon's environment:
+The hello world, once a credential is in the daemon's environment.
+`token_env` is per-spec and requestor-owned — holden's specs will name
+holden's credential, an operator job names the operator's; hahod is
+bound to none of them and only checks that the named var is set:
 
 ```
-launchctl setenv HOLDEN_ANTHROPIC_KEY <value>   # operator, by hand; no file
-make daemon-down daemon-up                       # env reads at spawn
+launchctl setenv ANTHROPIC_API_KEY <value>   # operator, by hand; no file
+make daemon-down daemon-up                    # env reads at spawn
 SID=$(curl -sX POST 127.0.0.1:8790/sessions | jq -r .id)
 curl -sX POST 127.0.0.1:8790/sessions/$SID/task -d @deploy/hello-world.json
 curl -s 127.0.0.1:8790/sessions/$SID              # poll: in_flight, disposition

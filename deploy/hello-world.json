@@ -5,7 +5,7 @@
     "kind": "ANTHROPIC_COMPATIBLE",
     "baseUrl": "https://api.anthropic.com",
     "model": "claude-haiku-4-5-20251001",
-    "tokenEnv": "HOLDEN_ANTHROPIC_KEY"
+    "tokenEnv": "ANTHROPIC_API_KEY"
   },
   "framing": {"strategy": "WHOLE_OR_ERROR"},
   "synthesis": {"mode": "NONE"},
