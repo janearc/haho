@@ -20,8 +20,14 @@ logdir="$HOME/.local/state/haho/log"
 cd "$repo"
 go build -o bin/hahod ./cmd/hahod
 
+# Render the launcher (the launchd entry point): it resolves secrets from
+# 1Password into the environment, then execs the daemon. The plist runs the
+# launcher, never the binary directly.
+sed -e "s|@BIN@|$repo/bin/hahod|" deploy/hahod-launcher.sh > bin/hahod-launcher
+chmod +x bin/hahod-launcher
+
 mkdir -p "$logdir" "$HOME/Library/LaunchAgents"
-sed -e "s|@BIN@|$repo/bin/hahod|" -e "s|@LOG@|$logdir/hahod.log|" \
+sed -e "s|@BIN@|$repo/bin/hahod-launcher|" -e "s|@LOG@|$logdir/hahod.log|" \
     "deploy/$label.plist.in" > "$plist"
 
 launchctl bootout "gui/$(id -u)/$label" 2>/dev/null || true

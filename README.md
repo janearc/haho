@@ -93,7 +93,20 @@ curl -s 127.0.0.1:8790/health                     # the daemon's own answer
 Logs are structured JSON at `~/.local/state/haho/log/hahod.log`; the
 store is `~/.local/state/haho/hahod.db`. The daemon serves loopback only
 (`127.0.0.1:8790` by default; `HAHOD_ADDR`/`HAHOD_STORE` or flags
-override). Stopping is graceful by construction: the listener stops,
+override).
+
+Secrets: launchd runs the rendered launcher (`deploy/hahod-launcher.sh`),
+which resolves each secret from 1Password into the daemon's environment
+and execs `hahod` — the value is never in a file, argv, or a log. Today's
+one secret: `HOLDEN_ANTHROPIC_KEY`, from
+`op://Personal/holden-anthropic-key/credential` (item reference
+overridable via `HOLDEN_ANTHROPIC_KEY_ITEM`). The operator creates the
+item and owns the value; the repo only ever names it. If `op` cannot
+answer at start, hahod runs without the var and admission refuses any
+JobSpec that names it (`secret_env_missing`) — a keyless hahod that says
+so, rather than a hung or lying one. Restoring the key is an interactive
+`launchctl kickstart -k gui/$UID/com.janearc.hahod` with 1Password
+unlocked (Touch ID prompts once). Stopping is graceful by construction: the listener stops,
 in-flight jobs land (FAILED with the cancellation as reason if they
 cannot finish), queued jobs land FAILED without running, and only then
 does the store close. A crash instead of a stop is converged at the next
