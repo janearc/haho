@@ -620,8 +620,9 @@ message Messages { repeated haho.common.v1.ChatMessage messages = 1; }
 // Backend is a descriptor: it names a model seam and how to reach it. The
 // job carries the descriptor; the chute constructs the actual client from
 // it at launch. Lane is not a field — it is derived from kind (metal for
-// MLX, ane for AFM/SPEECH/TRANSLATION, api for the *_COMPATIBLE kinds) and
-// a kind/lane mismatch is therefore impossible to express.
+// MLX, ane for AFM/SPEECH/TRANSLATION, api for the *_COMPATIBLE kinds and
+// for CLAUDE_CLI) and a kind/lane mismatch is therefore impossible to
+// express.
 message Backend {
   Kind kind = 1;
   enum Kind {
@@ -634,6 +635,10 @@ message Backend {
     TRANSLATION          = 6; // ane lane: on-device machine translation.
                               // Reserved room below: translation will need
                               // language-pair and glossary fields.
+    CLAUDE_CLI           = 7; // api lane: an agent CLI spawned as a
+                              // subprocess (`claude -p`), carrying its OWN
+                              // authentication -- base_url and token_env
+                              // MUST be empty and are refused if set.
   }
   string base_url = 2;      // api kinds and the MLX server
   string model = 3;         // where the kind takes one
@@ -804,15 +809,28 @@ holden's assessment. One job, api lane, whole or nothing:
   "jobId": "ruling-delightd-121",
   "payload": {"messages": {"messages": [
     {"role": "user", "content": "<the assembled ruling prompt>"}]}},
-  "backend": {"kind": "ANTHROPIC_COMPATIBLE", "model": "claude-fable-5",
-              "baseUrl": "https://api.anthropic.com",
-              "tokenEnv": "HOLDEN_ANTHROPIC_KEY"},
+  "backend": {"kind": "CLAUDE_CLI", "model": "claude-fable-5",
+              "params": {"otel_resource_attributes":
+                         "mesh.component=holden-judge,mesh.repo=delightd,mesh.pr=121"}},
   "framing": {"strategy": "WHOLE_OR_ERROR"},
   "synthesis": {"mode": "NONE"},
   "cache": {"kind": "NONE"},
   "allowPartial": false
 }
 ```
+
+This spec named ANTHROPIC_COMPATIBLE with a `baseUrl` and a
+`tokenEnv` until 2026-08-21. It was changed because it described a holden
+that does not exist: the judge spawns the agent CLI, which carries its own
+authentication, and the api-key form would have moved the cost of every
+ruling onto a key the operator does not use for it. The kind carries no
+`baseUrl` and no `tokenEnv` — both are refused rather than ignored, because a
+descriptor naming a credential nothing reads looks configured and is inert.
+
+`otel_resource_attributes` is not decoration. The judge's telemetry is what
+makes "what did this ruling cost" answerable per repo and per pull request; a
+requestor talking to hahod cannot reach hahod's child process, so the
+attribution has to ride in the spec or the accounting is lost on the way.
 
 A wonderlib distillation. The requestor has decided — this is discernment,
 worked externally — that no large local model comes up for this: the

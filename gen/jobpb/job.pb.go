@@ -712,8 +712,9 @@ func (x *Messages) GetMessages() []*commonpb.ChatMessage {
 // Backend is a descriptor: it names a model seam and how to reach it. The
 // job carries the descriptor; the chute constructs the actual client from
 // it at launch. Lane is not a field — it is derived from kind (metal for
-// MLX, ane for AFM/SPEECH/TRANSLATION, api for the *_COMPATIBLE kinds) and
-// a kind/lane mismatch is therefore impossible to express.
+// MLX, ane for AFM/SPEECH/TRANSLATION, api for the *_COMPATIBLE kinds and
+// for CLAUDE_CLI) and a kind/lane mismatch is therefore impossible to
+// express.
 type Backend struct {
 	state    protoimpl.MessageState `protogen:"open.v1"`
 	Kind     Backend_Kind           `protobuf:"varint,1,opt,name=kind,proto3,enum=haho.job.v1.Backend_Kind" json:"kind,omitempty"`
