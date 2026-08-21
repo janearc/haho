@@ -59,8 +59,9 @@ message Messages { repeated haho.common.v1.ChatMessage messages = 1; }
 // Backend is a descriptor: it names a model seam and how to reach it. The
 // job carries the descriptor; the chute constructs the actual client from
 // it at launch. Lane is not a field — it is derived from kind (metal for
-// MLX, ane for AFM/SPEECH/TRANSLATION, api for the *_COMPATIBLE kinds) and
-// a kind/lane mismatch is therefore impossible to express.
+// MLX, ane for AFM/SPEECH/TRANSLATION, api for the *_COMPATIBLE kinds and
+// for CLAUDE_CLI) and a kind/lane mismatch is therefore impossible to
+// express.
 message Backend {
   Kind kind = 1;
   enum Kind {
@@ -73,6 +74,23 @@ message Backend {
     TRANSLATION          = 6; // ane lane: on-device machine translation.
                               // Reserved room below: translation will need
                               // language-pair and glossary fields.
+    CLAUDE_CLI           = 7; // api lane: an agent CLI spawned as a subprocess
+                              // (`claude -p`), which carries its own
+                              // authentication. The api kinds above reach the
+                              // service over HTTP with a token_env; this one
+                              // does not, and MUST leave token_env empty --
+                              // the credential is the CLI's, not the spec's.
+                              // The EXECUTABLE IS NOT THE SPEC'S TO NAME: it
+                              // is hahod's own configuration, and a spec
+                              // setting `command` or `args_prefix` is
+                              // REFUSED. The child's environment is
+                              // constructed, never inherited (section 14).
+                              //
+                              // Lane is api because the work is an api-lane
+                              // workload -- same upstream service, same
+                              // coherence window; the subprocess is transport,
+                              // not hardware. It is NOT metal or ane: nothing
+                              // executes on this machine but a pipe.
   }
   string base_url = 2;      // api kinds and the MLX server
   string model = 3;         // where the kind takes one

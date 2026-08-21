@@ -34,11 +34,13 @@ the RFC's section 8 sketch, generated code is committed (gen-freshness
 holds and is checkable: regenerate == committed), and `bin/hahod` serves
 the RFC's console walkthrough on loopback — sessions, the section 10
 admission table, structured JSON logging, `/health` and `/metrics`. The
-served surface is exactly: api lane, both api kinds
+served surface is exactly: api lane, three api kinds
 (`ANTHROPIC_COMPATIBLE` and `OPENAI_COMPATIBLE` — local ollama rides the
-latter, credential-free), `WHOLE_OR_ERROR`, synthesis `NONE`, cache
-`NONE`, no filters. Everything else the contract can express is REFUSED
-at admission, loudly, by name.
+latter, credential-free — and `CLAUDE_CLI`, which execs an agent CLI that
+carries its own authentication and therefore takes no `base_url` and no
+`token_env`; both are refused if a spec sets them), `WHOLE_OR_ERROR`,
+synthesis `NONE`, cache `NONE`, no filters. Everything else the contract
+can express is REFUSED at admission, loudly, by name.
 
 Divergences from the RFC, surfaced (each is queued work, none is silent):
 
@@ -63,6 +65,21 @@ Divergences from the RFC, surfaced (each is queued work, none is silent):
   RFC's worked specs require that freedom — so requestor authentication
   and a `base_url` allowlist are open operator questions, deliberately
   not pre-decided in code.
+- `CLAUDE_CLI` makes hahod exec a local program, which the HTTP kinds
+  never did. Two things are deliberately NOT a spec's to choose: the
+  executable, resolved from hahod's own configuration (`-claude-cli` /
+  `HAHOD_CLAUDE_CLI`, the pattern `HAHOD_ADDR` and `HAHOD_STORE`
+  already use), and its argv, which no spec supplies. A spec setting
+  `command` or `args_prefix` is refused rather than ignored. The child's
+  environment is CONSTRUCTED (`HOME`, `PATH`, locale, and `OTEL_*`)
+  rather than inherited, so hahod's own process environment — which since
+  the 1Password change holds a resolved `HOLDEN_ANTHROPIC_KEY` — is not
+  handed to a requestor-triggered subprocess. Section 14 asks for exactly
+  this; an earlier draft of the backend took the executable from the spec
+  and inherited the full environment, and that is recorded here rather
+  than quietly fixed. What remains open: the kind is served in-process,
+  so section 5's per-job sandbox does not yet constrain what the CLI
+  reaches — see RFC section 17.
 
 **The pre-RFC proof of concept** (`cmd/haho`, the older `internal/`
 packages): an LLM proxy with a control port, a filter pipeline, model

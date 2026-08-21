@@ -273,7 +273,7 @@ Work placement on this machine, by hardware path:
 |---|---|---|---|
 | metal (GPU) | MLX, via a resident model server | whisper large-v3, mlx-lm models | highest local throughput; contended — budgets in section 10; the 70x side of Appendix A[^8] |
 | ane (Neural Engine) | AFM (Foundation Models)[^4], Speech (`SpeechTranscriber`), Translation, CoreML[^5] | the on-device foundation model[^10]; on-device transcription; on-device machine translation | designed to run concurrently with the GPU; low power; small coherence windows (section 9); concurrency is per-door, measured (Appendices B, C) |
-| api (network) | HTTP to a model endpoint[^7] | claude, deepseek, anything with a served model | capable of what no local model is; costs dollars and round trips |
+| api (network) | HTTP to a model endpoint[^7], or exec of an agent CLI that speaks to one on its own behalf (`CLAUDE_CLI`) | claude, deepseek, anything with a served model | capable of what no local model is; costs dollars and round trips |
 | cpu | plain code | chunking, filters, synthesis assembly, voice-activity detection (VAD — deciding where speech starts and stops) | simple code patterns |
 
 torch does not appear in this table on purpose: haho is *fruit-native* by
@@ -620,8 +620,9 @@ message Messages { repeated haho.common.v1.ChatMessage messages = 1; }
 // Backend is a descriptor: it names a model seam and how to reach it. The
 // job carries the descriptor; the chute constructs the actual client from
 // it at launch. Lane is not a field — it is derived from kind (metal for
-// MLX, ane for AFM/SPEECH/TRANSLATION, api for the *_COMPATIBLE kinds) and
-// a kind/lane mismatch is therefore impossible to express.
+// MLX, ane for AFM/SPEECH/TRANSLATION, api for the *_COMPATIBLE kinds and
+// for CLAUDE_CLI) and a kind/lane mismatch is therefore impossible to
+// express.
 message Backend {
   Kind kind = 1;
   enum Kind {
@@ -634,6 +635,10 @@ message Backend {
     TRANSLATION          = 6; // ane lane: on-device machine translation.
                               // Reserved room below: translation will need
                               // language-pair and glossary fields.
+    CLAUDE_CLI           = 7; // api lane: an agent CLI spawned as a
+                              // subprocess (`claude -p`), carrying its OWN
+                              // authentication -- base_url and token_env
+                              // MUST be empty and are refused if set.
   }
   string base_url = 2;      // api kinds and the MLX server
   string model = 3;         // where the kind takes one
@@ -804,15 +809,28 @@ holden's assessment. One job, api lane, whole or nothing:
   "jobId": "ruling-delightd-121",
   "payload": {"messages": {"messages": [
     {"role": "user", "content": "<the assembled ruling prompt>"}]}},
-  "backend": {"kind": "ANTHROPIC_COMPATIBLE", "model": "claude-fable-5",
-              "baseUrl": "https://api.anthropic.com",
-              "tokenEnv": "HOLDEN_ANTHROPIC_KEY"},
+  "backend": {"kind": "CLAUDE_CLI", "model": "claude-fable-5",
+              "params": {"otel_resource_attributes":
+                         "mesh.component=holden-judge,mesh.repo=delightd,mesh.pr=121"}},
   "framing": {"strategy": "WHOLE_OR_ERROR"},
   "synthesis": {"mode": "NONE"},
   "cache": {"kind": "NONE"},
   "allowPartial": false
 }
 ```
+
+This spec named ANTHROPIC_COMPATIBLE with a `baseUrl` and a
+`tokenEnv` until 2026-08-21. It was changed because it described a holden
+that does not exist: the judge spawns the agent CLI, which carries its own
+authentication, and the api-key form would have moved the cost of every
+ruling onto a key the operator does not use for it. The kind carries no
+`baseUrl` and no `tokenEnv` — both are refused rather than ignored, because a
+descriptor naming a credential nothing reads looks configured and is inert.
+
+`otel_resource_attributes` is not decoration. The judge's telemetry is what
+makes "what did this ruling cost" answerable per repo and per pull request; a
+requestor talking to hahod cannot reach hahod's child process, so the
+attribution has to ride in the spec or the accounting is lost on the way.
 
 A wonderlib distillation. The requestor has decided — this is discernment,
 worked externally — that no large local model comes up for this: the
@@ -1223,6 +1241,26 @@ made one API generation earlier.
   it does not compute placements itself (section 2).
 
 ## 17. Open questions
+
+**A self-authenticating subprocess kind's sandbox reach.** `CLAUDE_CLI`
+(section 8) enters the api lane by exec rather than by HTTP, and section 5
+derives a chute's reach from its spec: the only outbound grant an api-backed
+job gets is `(remote tcp (param "API_HOST"))`, taken from the spec's
+`base_url`. This kind MUST carry no `base_url` — it refuses one, because the
+CLI decides where it goes — so `API_HOST` is underivable and a profile
+generated as written would grant the job no network at all, while the
+deny-default file rules would also deny the CLI the credential store it
+authenticates with. Today the kind is served in-process, so section 5's
+sandbox constrains nothing and the question has not bitten; it must be
+answered before the harness split lands. The candidates: derive the grant
+from hahod's configuration rather than the spec, give the kind a declared
+reach of its own, or decide that a self-authenticating subprocess is not
+sandboxable on these terms and say so. Not pre-decided here.
+
+The executable and argv are already settled and are NOT part of this
+question: both are hahod's own configuration, never a spec's, and the child's
+environment is constructed rather than inherited (section 14).
+
 
 - **Cache fingerprints per backend.** The key includes a model fingerprint;
   each backend must define one. api models report identifiers; MLX can

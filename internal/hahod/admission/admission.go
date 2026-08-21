@@ -52,7 +52,13 @@ func LaneOf(kind jobpb.Backend_Kind) jobpb.Lane {
 		return jobpb.Lane_LANE_METAL
 	case jobpb.Backend_AFM, jobpb.Backend_SPEECH, jobpb.Backend_TRANSLATION:
 		return jobpb.Lane_LANE_ANE
-	case jobpb.Backend_ANTHROPIC_COMPATIBLE, jobpb.Backend_OPENAI_COMPATIBLE:
+	case jobpb.Backend_ANTHROPIC_COMPATIBLE, jobpb.Backend_OPENAI_COMPATIBLE, jobpb.Backend_CLAUDE_CLI:
+		// CLAUDE_CLI is an api-lane workload that happens to arrive by
+		// subprocess: same upstream service, same coherence window, and
+		// nothing executes on this machine but a pipe. It is deliberately
+		// NOT its own lane -- a lane is a hardware path (section 4), and
+		// inventing one to express "spawns a process" would say something
+		// about transport in a field that means silicon.
 		return jobpb.Lane_LANE_API
 	default:
 		return jobpb.Lane_LANE_UNSPECIFIED
@@ -195,7 +201,9 @@ func (a *Admission) Admit(spec *jobpb.JobSpec) (*Ticket, *Refusal) {
 	if lane != jobpb.Lane_LANE_API {
 		return nil, refuse("lane_not_served", "lane %s is not served yet; the api lane is the first door", lane)
 	}
-	if kind != jobpb.Backend_ANTHROPIC_COMPATIBLE && kind != jobpb.Backend_OPENAI_COMPATIBLE {
+	if kind != jobpb.Backend_ANTHROPIC_COMPATIBLE &&
+		kind != jobpb.Backend_OPENAI_COMPATIBLE &&
+		kind != jobpb.Backend_CLAUDE_CLI {
 		return nil, refuse("backend_kind_not_served", "backend kind %s is not served yet", kind)
 	}
 	if s := spec.GetFraming().GetStrategy(); s != jobpb.Framing_WHOLE_OR_ERROR {
