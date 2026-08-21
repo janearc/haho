@@ -105,6 +105,9 @@ const (
 	Backend_MLX                  Backend_Kind = 4 // metal lane: the resident MLX server
 	Backend_SPEECH               Backend_Kind = 5 // ane lane: SpeechTranscriber
 	Backend_TRANSLATION          Backend_Kind = 6 // ane lane: on-device machine translation.
+	// Reserved room below: translation will need
+	// language-pair and glossary fields.
+	Backend_CLAUDE_CLI Backend_Kind = 7 // api lane: an agent CLI spawned as a subprocess
 )
 
 // Enum value maps for Backend_Kind.
@@ -117,6 +120,7 @@ var (
 		4: "MLX",
 		5: "SPEECH",
 		6: "TRANSLATION",
+		7: "CLAUDE_CLI",
 	}
 	Backend_Kind_value = map[string]int32{
 		"KIND_UNSPECIFIED":     0,
@@ -126,6 +130,7 @@ var (
 		"MLX":                  4,
 		"SPEECH":               5,
 		"TRANSLATION":          6,
+		"CLAUDE_CLI":           7,
 	}
 )
 
@@ -1630,7 +1635,7 @@ const file_haho_job_v1_job_proto_rawDesc = "" +
 	"\x03raw\x18\x03 \x01(\fH\x00R\x03rawB\x06\n" +
 	"\x04body\"C\n" +
 	"\bMessages\x127\n" +
-	"\bmessages\x18\x01 \x03(\v2\x1b.haho.common.v1.ChatMessageR\bmessages\"\xff\x02\n" +
+	"\bmessages\x18\x01 \x03(\v2\x1b.haho.common.v1.ChatMessageR\bmessages\"\x90\x03\n" +
 	"\aBackend\x12-\n" +
 	"\x04kind\x18\x01 \x01(\x0e2\x19.haho.job.v1.Backend.KindR\x04kind\x12\x19\n" +
 	"\bbase_url\x18\x02 \x01(\tR\abaseUrl\x12\x14\n" +
@@ -1639,7 +1644,7 @@ const file_haho_job_v1_job_proto_rawDesc = "" +
 	"\x06params\x18\x05 \x03(\v2 .haho.job.v1.Backend.ParamsEntryR\x06params\x1a9\n" +
 	"\vParamsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"|\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\x8c\x01\n" +
 	"\x04Kind\x12\x14\n" +
 	"\x10KIND_UNSPECIFIED\x10\x00\x12\x18\n" +
 	"\x14ANTHROPIC_COMPATIBLE\x10\x01\x12\x15\n" +
@@ -1648,7 +1653,9 @@ const file_haho_job_v1_job_proto_rawDesc = "" +
 	"\x03MLX\x10\x04\x12\n" +
 	"\n" +
 	"\x06SPEECH\x10\x05\x12\x0f\n" +
-	"\vTRANSLATION\x10\x06J\x04\b\x06\x10\n" +
+	"\vTRANSLATION\x10\x06\x12\x0e\n" +
+	"\n" +
+	"CLAUDE_CLI\x10\aJ\x04\b\x06\x10\n" +
 	"\"\xcf\x04\n" +
 	"\aFraming\x129\n" +
 	"\bstrategy\x18\x01 \x01(\x0e2\x1d.haho.job.v1.Framing.StrategyR\bstrategy\x126\n" +

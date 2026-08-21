@@ -73,6 +73,21 @@ message Backend {
     TRANSLATION          = 6; // ane lane: on-device machine translation.
                               // Reserved room below: translation will need
                               // language-pair and glossary fields.
+    CLAUDE_CLI           = 7; // api lane: an agent CLI spawned as a subprocess
+                              // (`claude -p`), which carries its own
+                              // authentication. The api kinds above reach the
+                              // service over HTTP with a token_env; this one
+                              // does not, and MUST leave token_env empty --
+                              // the credential is the CLI's, not the spec's.
+                              // params: `command` (the executable, default
+                              // "claude"), `args_prefix` (space-separated,
+                              // prepended before -p).
+                              //
+                              // Lane is api because the work is an api-lane
+                              // workload -- same upstream service, same
+                              // coherence window; the subprocess is transport,
+                              // not hardware. It is NOT metal or ane: nothing
+                              // executes on this machine but a pipe.
   }
   string base_url = 2;      // api kinds and the MLX server
   string model = 3;         // where the kind takes one
