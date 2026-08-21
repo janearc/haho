@@ -80,9 +80,11 @@ message Backend {
                               // service over HTTP with a token_env; this one
                               // does not, and MUST leave token_env empty --
                               // the credential is the CLI's, not the spec's.
-                              // params: `command` (the executable, default
-                              // "claude"), `args_prefix` (space-separated,
-                              // prepended before -p).
+                              // The EXECUTABLE IS NOT THE SPEC'S TO NAME: it
+                              // is hahod's own configuration, and a spec
+                              // setting `command` or `args_prefix` is
+                              // REFUSED. The child's environment is
+                              // constructed, never inherited (section 14).
                               //
                               // Lane is api because the work is an api-lane
                               // workload -- same upstream service, same

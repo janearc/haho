@@ -202,8 +202,16 @@ idle from dead), and a readiness check that means something:
 Config resolves once at startup, flag over env over default (the existing
 `Config` boundary). The stale `~/work/sprints` default WILL be fixed
 before holden is considered stable. holden carries no credentials of its
-own; the chute owns model auth via the spec's env references (haho's
-security posture), and the `gh` layer owns GitHub auth, exactly as today.
+own, and that stays true on both sides of the seam. For the HTTP backend
+kinds the chute owns model auth via the spec's env REFERENCES — names, never
+values (haho's security posture). For `CLAUDE_CLI`, the kind holden's own
+rulings use, there is no reference either: the agent CLI carries its own
+authentication, so the spec names no credential at all and the kind refuses
+`token_env` if one is set. The distinction matters because it decides who
+pays — the CLI spends the operator's existing allotment where an api key
+would meter separately — and because a spec naming a credential nothing
+reads would read as configured and be inert. The `gh` layer owns GitHub
+auth, exactly as today.
 
 ## 7. Migration, ordered
 

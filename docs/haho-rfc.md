@@ -273,7 +273,7 @@ Work placement on this machine, by hardware path:
 |---|---|---|---|
 | metal (GPU) | MLX, via a resident model server | whisper large-v3, mlx-lm models | highest local throughput; contended — budgets in section 10; the 70x side of Appendix A[^8] |
 | ane (Neural Engine) | AFM (Foundation Models)[^4], Speech (`SpeechTranscriber`), Translation, CoreML[^5] | the on-device foundation model[^10]; on-device transcription; on-device machine translation | designed to run concurrently with the GPU; low power; small coherence windows (section 9); concurrency is per-door, measured (Appendices B, C) |
-| api (network) | HTTP to a model endpoint[^7] | claude, deepseek, anything with a served model | capable of what no local model is; costs dollars and round trips |
+| api (network) | HTTP to a model endpoint[^7], or exec of an agent CLI that speaks to one on its own behalf (`CLAUDE_CLI`) | claude, deepseek, anything with a served model | capable of what no local model is; costs dollars and round trips |
 | cpu | plain code | chunking, filters, synthesis assembly, voice-activity detection (VAD — deciding where speech starts and stops) | simple code patterns |
 
 torch does not appear in this table on purpose: haho is *fruit-native* by
@@ -1241,6 +1241,26 @@ made one API generation earlier.
   it does not compute placements itself (section 2).
 
 ## 17. Open questions
+
+**A self-authenticating subprocess kind's sandbox reach.** `CLAUDE_CLI`
+(section 8) enters the api lane by exec rather than by HTTP, and section 5
+derives a chute's reach from its spec: the only outbound grant an api-backed
+job gets is `(remote tcp (param "API_HOST"))`, taken from the spec's
+`base_url`. This kind MUST carry no `base_url` — it refuses one, because the
+CLI decides where it goes — so `API_HOST` is underivable and a profile
+generated as written would grant the job no network at all, while the
+deny-default file rules would also deny the CLI the credential store it
+authenticates with. Today the kind is served in-process, so section 5's
+sandbox constrains nothing and the question has not bitten; it must be
+answered before the harness split lands. The candidates: derive the grant
+from hahod's configuration rather than the spec, give the kind a declared
+reach of its own, or decide that a self-authenticating subprocess is not
+sandboxable on these terms and say so. Not pre-decided here.
+
+The executable and argv are already settled and are NOT part of this
+question: both are hahod's own configuration, never a spec's, and the child's
+environment is constructed rather than inherited (section 14).
+
 
 - **Cache fingerprints per backend.** The key includes a model fingerprint;
   each backend must define one. api models report identifiers; MLX can

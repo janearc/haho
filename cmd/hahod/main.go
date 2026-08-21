@@ -30,6 +30,7 @@ import (
 	"time"
 
 	"github.com/janearc/haho/internal/hahod/admission"
+	"github.com/janearc/haho/internal/hahod/backend"
 	"github.com/janearc/haho/internal/hahod/server"
 	"github.com/janearc/haho/internal/hahod/store"
 )
@@ -40,6 +41,10 @@ import (
 type config struct {
 	addr      string
 	storePath string
+	// The agent CLI the CLAUDE_CLI backend execs. HAHOD'S OWN CONFIGURATION,
+	// never a spec's: a requestor naming the executable would mean a same-uid
+	// process could have hahod run anything, in hahod's environment.
+	claudeCLI string
 }
 
 // loadConfig parses args (argv minus the program name). It owns its own
@@ -51,10 +56,12 @@ func loadConfig(args []string) (config, error) {
 		"loopback address to serve on (env HAHOD_ADDR)")
 	storePath := fs.String("store", envOr("HAHOD_STORE", defStore),
 		"path to hahod's bbolt store (env HAHOD_STORE)")
+	claudeCLI := fs.String("claude-cli", envOr("HAHOD_CLAUDE_CLI", "claude"),
+		"agent CLI executed for CLAUDE_CLI backend jobs (env HAHOD_CLAUDE_CLI)")
 	if err := fs.Parse(args); err != nil {
 		return config{}, err
 	}
-	return config{addr: *addr, storePath: *storePath}, nil
+	return config{addr: *addr, storePath: *storePath, claudeCLI: *claudeCLI}, nil
 }
 
 func envOr(name, def string) string {
@@ -90,6 +97,9 @@ func main() {
 		log.Error("startup refused", "error", err.Error())
 		os.Exit(1)
 	}
+	// Named once, at launch, from hahod's own configuration -- the pattern
+	// HAHOD_ADDR and HAHOD_STORE already use. A JobSpec cannot reach it.
+	backend.ConfigureClaudeCLI(cfg.claudeCLI)
 	if err := os.MkdirAll(filepath.Dir(cfg.storePath), 0o700); err != nil {
 		log.Error("startup refused", "error", fmt.Sprintf("store dir: %v", err))
 		os.Exit(1)
