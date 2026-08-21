@@ -216,3 +216,32 @@ func TestClaudeCLIAppendsRatherThanOverwritingAttribution(t *testing.T) {
 		t.Errorf("spec attribution missing: %q", res.Text)
 	}
 }
+
+func TestClaudeCLIRunsWithoutTools(t *testing.T) {
+	// A payload is requestor-supplied text; for a ruling it carries design
+	// docs from public repositories. A tool-bearing CLI can be steered by
+	// that text into acting as the operator on this host. If this test ever
+	// fails, an untrusted payload gained a way to act.
+	b, err := newClaudeCLI(cliSpec(script(t, `printf '%s\n' "$@"; echo done`), nil))
+	if err != nil {
+		t.Fatalf("newClaudeCLI: %v", err)
+	}
+	res, err := b.Run(context.Background(), cliSpec("unused", nil))
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	lines := strings.Split(res.Text, "\n")
+	idx := -1
+	for i, l := range lines {
+		if l == "--tools" {
+			idx = i
+			break
+		}
+	}
+	if idx == -1 {
+		t.Fatalf("--tools absent from argv: %q", res.Text)
+	}
+	if idx+1 >= len(lines) || lines[idx+1] != "" {
+		t.Errorf("--tools was not followed by an empty value: %q", res.Text)
+	}
+}

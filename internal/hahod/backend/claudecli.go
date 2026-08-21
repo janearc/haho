@@ -162,6 +162,17 @@ func (c *claudecli) Run(ctx context.Context, spec *jobpb.JobSpec) (*Result, erro
 
 	args := append([]string{}, c.prefix...)
 	args = append(args, "-p")
+	// NO TOOLS, and this is load-bearing rather than tidy. A payload is text
+	// the requestor supplied, and for a ruling it carries design docs from
+	// public repositories -- untrusted text by construction. A tool-bearing
+	// CLI can be steered by that text into acting as the operator on this
+	// host, which is a different and much worse failure than a bad answer.
+	// The seam's contract is prompt-to-text; tools are not part of it.
+	//
+	// Passed here rather than left to params.args_prefix on purpose: this
+	// must not be forgettable, and args_prefix is split on spaces and so
+	// cannot express an empty-string argument at all.
+	args = append(args, "--tools", "")
 	if c.model != "" {
 		args = append(args, "--model", c.model)
 	}
