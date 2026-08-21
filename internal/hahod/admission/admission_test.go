@@ -2,6 +2,8 @@ package admission
 
 import (
 	"context"
+	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -319,5 +321,107 @@ func TestDefaultsPinTheSection10Table(t *testing.T) {
 	}
 	for _, tk := range tickets {
 		tk.Release()
+	}
+}
+
+// cliSpecFor is servableSpec turned into a CLAUDE_CLI job: same servable
+// shape, and the kind carries no base_url because it refuses one.
+func cliSpecFor(id string) *jobpb.JobSpec {
+	s := servableSpec()
+	s.JobId = id
+	s.Backend = &jobpb.Backend{Kind: jobpb.Backend_CLAUDE_CLI, Model: "claude-fable-5"}
+	return s
+}
+
+// apiSpecFor is servableSpec with an id of its own.
+func apiSpecFor(id string) *jobpb.JobSpec {
+	s := servableSpec()
+	s.JobId = id
+	return s
+}
+
+func TestClaudeCLIAdmitsOneAtATime(t *testing.T) {
+	// The operator ruled 2026-08-21 that two judge runs must never overlap:
+	// a CLAUDE_CLI job is an agent session spending her own allotment, so two
+	// at once is expense rather than slowness. The ledger already carries a
+	// duplicate pair (delightd PR 131, rulings 030637Z and 031731Z).
+	a := New(Defaults())
+
+	first, ref := a.Admit(cliSpecFor("ruling-1"))
+	if ref != nil {
+		t.Fatalf("first CLAUDE_CLI job refused: %v", ref)
+	}
+	if first.Queued() {
+		t.Fatal("first CLAUDE_CLI job queued; it should hold the only slot")
+	}
+
+	second, ref := a.Admit(cliSpecFor("ruling-2"))
+	if ref != nil {
+		t.Fatalf("second CLAUDE_CLI job refused outright; it should QUEUE: %v", ref)
+	}
+	if !second.Queued() {
+		t.Fatal("second CLAUDE_CLI job was admitted to run concurrently with the first")
+	}
+
+	// Releasing the first must hand the slot to the waiter, not strand it.
+	first.Release()
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	if err := second.Wait(ctx); err != nil {
+		t.Fatalf("queued CLAUDE_CLI job never got the freed slot: %v", err)
+	}
+	second.Release()
+}
+
+func TestClaudeCLIDoesNotConsumeApiLaneSlots(t *testing.T) {
+	// The stated departure: a CLI job takes the cli gate INSTEAD of the api
+	// gate. This pins that behaviour so it is a decision on the record rather
+	// than something a later reader has to infer.
+	a := New(Defaults())
+	held, ref := a.Admit(cliSpecFor("ruling-1"))
+	if ref != nil {
+		t.Fatalf("CLAUDE_CLI refused: %v", ref)
+	}
+	defer held.Release()
+
+	// The api lane should still take its full budget with the CLI job running.
+	var tickets []*Ticket
+	for i := 0; i < Defaults().API.Budget; i++ {
+		tk, ref := a.Admit(apiSpecFor(fmt.Sprintf("api-%d", i)))
+		if ref != nil {
+			t.Fatalf("api job %d refused while a CLI job held its own gate: %v", i, ref)
+		}
+		if tk.Queued() {
+			t.Fatalf("api job %d queued; the CLI job should not have taken an api slot", i)
+		}
+		tickets = append(tickets, tk)
+	}
+	for _, tk := range tickets {
+		tk.Release()
+	}
+}
+
+func TestClaudeCLIQueueIsBounded(t *testing.T) {
+	// A full queue is REFUSED, never silently held past the bound, and the
+	// refusal names CLAUDE_CLI rather than the api lane so the operator can
+	// tell which bound she hit.
+	a := New(Defaults())
+	held, _ := a.Admit(cliSpecFor("run"))
+	defer held.Release()
+
+	for i := 0; i < Defaults().CLI.Queue; i++ {
+		if _, ref := a.Admit(cliSpecFor(fmt.Sprintf("q-%d", i))); ref != nil {
+			t.Fatalf("queued job %d refused before the bound: %v", i, ref)
+		}
+	}
+	_, ref := a.Admit(cliSpecFor("one-too-many"))
+	if ref == nil {
+		t.Fatal("a job past the queue bound was admitted")
+	}
+	if ref.Code != "queue_full" {
+		t.Errorf("refusal code = %q, want queue_full", ref.Code)
+	}
+	if !strings.Contains(ref.Reason, "CLAUDE_CLI") {
+		t.Errorf("refusal %q does not name CLAUDE_CLI; the operator cannot tell which bound she hit", ref.Reason)
 	}
 }
