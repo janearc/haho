@@ -1,9 +1,16 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <!--
-  hahod launchd agent template. `make daemon-up` renders @BIN@ and @LOG@
-  to absolute paths and installs to ~/Library/LaunchAgents — launchd does
-  not expand tildes, so the paths are stamped at install time, not here.
+  hahod launchd agent template. deploy/install-daemon.sh renders @BIN@,
+  @LOG@ and @CLAUDE@ to absolute paths and installs to ~/Library/LaunchAgents
+  — launchd does not expand tildes, so the paths are stamped at install
+  time, not here.
+
+  @CLAUDE@ is the agent CLI the CLAUDE_CLI backend execs, passed as hahod's
+  own -claude-cli flag. It has to be absolute: launchd gives this agent
+  PATH=/usr/bin:/bin:/usr/sbin:/sbin, so the bare `claude` the daemon
+  would otherwise default to exists in the operator's shell and nowhere
+  the daemon can see.
 
   No secret values live in this file, ever: specs reference env var NAMES
   and the daemon refuses jobs whose named vars are unset. Injecting values
@@ -21,6 +28,8 @@
   <key>ProgramArguments</key>
   <array>
     <string>@BIN@</string>
+    <string>-claude-cli</string>
+    <string>@CLAUDE@</string>
   </array>
   <key>RunAtLoad</key>
   <true/>

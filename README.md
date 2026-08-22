@@ -99,7 +99,19 @@ history, so this README never describes two systems' knobs at once.
 hahod runs as a launchd user agent. Install once —
 `deploy/install-daemon.sh` builds the binary, renders the plist with
 absolute paths, and bootstraps it — and from then on it is managed with
-launchctl like any other daemon on the host:
+launchctl like any other daemon on the host. Re-run the installer after a
+rebuild that changes flags, a relocation, or a move of the agent CLI.
+
+The installer also stamps the agent CLI's absolute path into the plist as
+hahod's `-claude-cli` flag, resolved from the installing shell (`command
+-v claude`, or `HAHOD_CLAUDE_CLI` to override), and refuses to install if
+it finds none. This is not optional: launchd starts the agent with
+`PATH=/usr/bin:/bin:/usr/sbin:/sbin`, so the daemon's default of a bare
+`claude` resolves in a terminal and in no launchd agent — every
+`CLAUDE_CLI` job would land FAILED with exec-not-found while `/health`
+stayed green. `launchctl print gui/$UID/com.janearc.hahod` shows the
+rendered arguments, which is how to check what the running daemon will
+exec.
 
 ```
 launchctl bootout   gui/$UID/com.janearc.hahod    # stop: SIGTERM, drain-and-land
