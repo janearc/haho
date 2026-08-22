@@ -76,11 +76,19 @@ func ConfigureClaudeCLI(path string) {
 //
 // The passthrough list is deliberately short and boring: the CLI needs a home
 // to find its own credentials and configuration, a PATH to find its runtime,
-// and locale so its output is not mangled. Everything else is dropped, and
-// anything OTEL_ is carried so telemetry keeps working.
+// locale so its output is not mangled, and USER/LOGNAME because the CLI
+// resolves the credential it owns by ACCOUNT NAME -- without USER it answers
+// "Not logged in" and exits 1 with nothing on stderr, which is how the
+// 2026-08-22 rehearsal landed two FAILED jobs in a second each (issue 13).
+// Identity is not a secret; the credential it unlocks never passes through
+// here. Everything else is dropped, and anything OTEL_ is carried so
+// telemetry keeps working.
 func childEnv(otelRes string) []string {
 	const otelPrefix = "OTEL_"
-	keep := map[string]bool{"HOME": true, "PATH": true, "LANG": true, "LC_ALL": true, "TZ": true}
+	keep := map[string]bool{
+		"HOME": true, "PATH": true, "LANG": true, "LC_ALL": true, "TZ": true,
+		"USER": true, "LOGNAME": true,
+	}
 	out := make([]string, 0, 8)
 	inheritedOtel := ""
 	for _, kv := range os.Environ() {
