@@ -1024,11 +1024,33 @@ requestors are clients of it.
     "ane":   { "doors": { "afm":    { "budget": 1 },
                           "speech": { "budget": 3 } },
                "queue": 8 },
-    "api":   { "budget": 16, "queue": 64 },
+    "api":   { "budget": 16, "queue": 64,
+               "kinds": { "CLAUDE_CLI": { "budget": 1, "queue": 8 } } },
     "cpu":   { "budget": 8,  "queue": 32 }
   }
 }
 ```
+
+The api lane carries one PER-KIND bound, and it is the first of its shape in
+this table. `CLAUDE_CLI` is limited to one at a time because a job of that kind
+is an agent CLI session: minutes long, and spending the operator's own
+allotment rather than a metered key. Two at once is not slowness, it is
+expense, and the ruling ledger has already paid for it once — a duplicate pair
+against one pull request, judged twice.
+
+The bound is a bound, not a lock: a second job QUEUES and runs when the first
+lands, which is what a requestor submitting two rulings back to back actually
+wants. Only a full queue is refused, by name, so the operator can tell which
+bound she hit.
+
+One departure recorded rather than shipped around: a `CLAUDE_CLI` job takes its
+own gate INSTEAD of the api lane's, not in addition to it, so the api lane can
+carry `budget + 1` in the worst case — 17 rather than 16. Taking both gates
+would be more faithful to "a lane budget bounds the lane"; it was not done
+because a ticket holds one gate, and that held/queued state machine already
+produced one real bug found by adversarial review. Rewriting it to bound a lane
+6% tighter, against a budget nothing in this estate approaches, is not the
+trade. The overshoot is one job, it is bounded, and it is written here.
 
 The metal budget of 1 is tied directly to the lane table's "contended"
 entry (section 4), and "heavy" has a definition: a job is heavy on a lane

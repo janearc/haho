@@ -31,6 +31,22 @@ type Budgets struct {
 	ANEDoors map[string]int
 	API      LaneCfg
 	CPU      LaneCfg
+	// CLI bounds CLAUDE_CLI jobs SEPARATELY from the rest of the api lane,
+	// at one at a time. It is not a lane -- lanes are hardware paths and this
+	// is a kind -- it is a per-kind bound inside the api lane.
+	//
+	// Why one. A CLAUDE_CLI job is an agent CLI session: minutes long, and it
+	// spends the operator's own allotment rather than a metered key. Two at
+	// once is not slow, it is expensive, and the operator ruled on 2026-08-21
+	// that it must never happen. The estate has already paid for it: the
+	// ruling ledger carries a duplicate pair for delightd PR 131 (rulings
+	// 030637Z and 031731Z), one pull request judged twice, and a second
+	// near-miss the same night was caught only because someone went looking.
+	//
+	// This is a BOUND, not a lock. A second job is not refused outright; it
+	// queues and runs when the first lands, which is what a requestor
+	// submitting two rulings back to back actually wants.
+	CLI LaneCfg
 }
 
 // Defaults returns the RFC section 10 numbers verbatim.
@@ -41,6 +57,7 @@ func Defaults() Budgets {
 		ANEDoors: map[string]int{"afm": 1, "speech": 3},
 		API:      LaneCfg{Budget: 16, Queue: 64},
 		CPU:      LaneCfg{Budget: 8, Queue: 32},
+		CLI:      LaneCfg{Budget: 1, Queue: 8},
 	}
 }
 
@@ -170,21 +187,39 @@ type laneGate struct {
 type Admission struct {
 	budgets Budgets
 	api     *laneGate
-	lookup  func(string) (string, bool) // env lookup; swappable in tests
+	// cli gates CLAUDE_CLI. A job takes THIS gate INSTEAD of the api gate,
+	// not in addition to it, and that is a stated departure rather than an
+	// oversight: it means the api lane can carry API.Budget + CLI.Budget in
+	// the worst case -- 17 rather than 16 -- because a CLI job occupies no
+	// api slot.
+	//
+	// Taking both would be more faithful to "a lane budget bounds the lane",
+	// and it was not done deliberately. A ticket holds one gate, and the
+	// held/queued state machine around that already produced one real bug
+	// found by adversarial review (a queued ticket returning a slot token it
+	// never held, admitting budget+1). Making a ticket hold two gates
+	// rewrites exactly that machinery to bound a lane 6% tighter, against a
+	// budget of 16 that nothing in this estate approaches. The overshoot is
+	// one job, it is bounded, and it is written down here.
+	cli    *laneGate
+	lookup func(string) (string, bool) // env lookup; swappable in tests
 }
 
 func New(b Budgets) *Admission {
 	return &Admission{
 		budgets: b,
 		api:     &laneGate{slots: make(chan struct{}, b.API.Budget), queueCap: int32(b.API.Queue)},
+		cli:     &laneGate{slots: make(chan struct{}, b.CLI.Budget), queueCap: int32(b.CLI.Queue)},
 		lookup:  os.LookupEnv,
 	}
 }
 
 // Admit validates and reserves. The nil-Refusal path returns a Ticket whose
 // Wait/Release manage the lane slot. The served surface today is exactly:
-// api lane, the two api kinds (ANTHROPIC_COMPATIBLE and OPENAI_COMPATIBLE
-// — local ollama rides the latter, credential-free), WHOLE_OR_ERROR,
+// api lane, three api kinds (ANTHROPIC_COMPATIBLE and OPENAI_COMPATIBLE
+// — local ollama rides the latter, credential-free — and CLAUDE_CLI, which
+// execs an agent CLI carrying its own auth and is bounded to one at a time
+// by its own gate), WHOLE_OR_ERROR,
 // synthesis NONE, cache NONE, no filters, text or messages payload.
 // Everything else the contract can express is REFUSED by name until the
 // code that serves it exists — admission never promises what the machine
@@ -238,17 +273,25 @@ func (a *Admission) Admit(spec *jobpb.JobSpec) (*Ticket, *Refusal) {
 		}
 	}
 
-	// Capacity: a free slot runs now; a full lane queues up to the bound; a
+	// Capacity: a free slot runs now; a full gate queues up to the bound; a
 	// full queue is REFUSED — never silently held past it.
+	//
+	// CLAUDE_CLI is gated per KIND rather than per lane (see Admission.cli):
+	// one at a time, because a CLI job is an agent session spending the
+	// operator's own allotment and two at once is expense, not slowness.
+	gate, cfg, name := a.api, a.budgets.API, "api lane"
+	if kind == jobpb.Backend_CLAUDE_CLI {
+		gate, cfg, name = a.cli, a.budgets.CLI, "CLAUDE_CLI"
+	}
 	select {
-	case a.api.slots <- struct{}{}:
-		return &Ticket{Lane: lane, state: ticketHeld, gate: a.api}, nil
+	case gate.slots <- struct{}{}:
+		return &Ticket{Lane: lane, state: ticketHeld, gate: gate}, nil
 	default:
 	}
-	if n := a.api.queued.Add(1); n > a.api.queueCap {
-		a.api.queued.Add(-1)
-		return nil, refuse("queue_full", "api lane at budget %d with queue %d full",
-			a.budgets.API.Budget, a.budgets.API.Queue)
+	if n := gate.queued.Add(1); n > gate.queueCap {
+		gate.queued.Add(-1)
+		return nil, refuse("queue_full", "%s at budget %d with queue %d full",
+			name, cfg.Budget, cfg.Queue)
 	}
-	return &Ticket{Lane: lane, state: ticketQueued, gate: a.api}, nil
+	return &Ticket{Lane: lane, state: ticketQueued, gate: gate}, nil
 }

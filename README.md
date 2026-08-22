@@ -38,7 +38,9 @@ served surface is exactly: api lane, three api kinds
 (`ANTHROPIC_COMPATIBLE` and `OPENAI_COMPATIBLE` — local ollama rides the
 latter, credential-free — and `CLAUDE_CLI`, which execs an agent CLI that
 carries its own authentication and therefore takes no `base_url` and no
-`token_env`; both are refused if a spec sets them), `WHOLE_OR_ERROR`,
+`token_env`; both are refused if a spec sets them, and it is bounded to ONE
+AT A TIME by its own gate because such a job spends the operator's allotment
+rather than a metered key), `WHOLE_OR_ERROR`,
 synthesis `NONE`, cache `NONE`, no filters. Everything else the contract
 can express is REFUSED at admission, loudly, by name.
 
