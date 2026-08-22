@@ -205,7 +205,10 @@ func TestClaudeCLIChildKeepsWhatTheCLINeeds(t *testing.T) {
 	// Short and boring on purpose: a home to find its own credentials, a PATH
 	// to find its runtime. Dropping these would break the CLI rather than
 	// secure it.
-	useCLI(t, `printf '%s' "${HOME:-NOHOME}|${PATH:+HASPATH}"`)
+	// USER is on the list because the CLI finds its stored credential by
+	// account name; without it the child says "Not logged in" (issue 13).
+	t.Setenv("USER", "rehearsal-user")
+	useCLI(t, `printf '%s' "${HOME:-NOHOME}|${PATH:+HASPATH}|${USER:-NOUSER}"`)
 	b, _ := newClaudeCLI(cliSpec(nil))
 	res, err := b.Run(context.Background(), cliSpec(nil))
 	if err != nil {
@@ -213,6 +216,9 @@ func TestClaudeCLIChildKeepsWhatTheCLINeeds(t *testing.T) {
 	}
 	if strings.HasPrefix(res.Text, "NOHOME") || !strings.Contains(res.Text, "HASPATH") {
 		t.Errorf("child env dropped HOME or PATH: %q", res.Text)
+	}
+	if !strings.HasSuffix(res.Text, "|rehearsal-user") {
+		t.Errorf("child env dropped USER: %q", res.Text)
 	}
 }
 
