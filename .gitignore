@@ -1,1 +1,4 @@
 bin/
+
+# macOS finder droppings. one of these was committed once already.
+.DS_Store
